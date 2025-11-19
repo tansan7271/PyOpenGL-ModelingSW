@@ -1,7 +1,7 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QToolBar, QAction, 
                              QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSpinBox,
-                             QGroupBox, QRadioButton)
+                             QGroupBox, QRadioButton, QScrollArea, QSizePolicy, QStyle)
 from PyQt5.QtCore import Qt
 from opengl_haeksim import OpenGLWidget
 
@@ -35,6 +35,7 @@ class MainWindow(QMainWindow):
 
         # ---- 우측 컨트롤 패널 설정 ----
         dock = QDockWidget("Controls", self)
+        dock.setMinimumWidth(240) # 컨트롤 패널의 최소 너비를 조정합니다.
         self.addDockWidget(Qt.RightDockWidgetArea, dock)
 
         dock_widget_content = QWidget()
@@ -57,20 +58,17 @@ class MainWindow(QMainWindow):
         self.axis_group_box = QGroupBox("Rotation Axis")
         axis_layout = QVBoxLayout()
         
-        # X축 라디오 버튼과 라벨
-        # 라벨에 서식(색, 밑줄)을 적용하기 위해 라디오 버튼과 라벨을 분리하고 'buddy'로 연결합니다.
         self.radio_x_axis = QRadioButton()
         self.label_x_axis = QLabel()
         self.label_x_axis.setBuddy(self.radio_x_axis)
         
         hbox_x = QHBoxLayout()
-        hbox_x.setSpacing(4) # 버튼과 라벨 사이의 간격을 조절합니다.
+        hbox_x.setSpacing(4)
         hbox_x.addWidget(self.radio_x_axis)
         hbox_x.addWidget(self.label_x_axis)
-        hbox_x.addStretch() # 위젯들을 왼쪽으로 정렬시킵니다.
+        hbox_x.addStretch()
         axis_layout.addLayout(hbox_x)
 
-        # Y축 라디오 버튼과 라벨
         self.radio_y_axis = QRadioButton()
         self.radio_y_axis.setChecked(True)
         self.radio_y_axis.toggled.connect(self._on_rotation_axis_changed)
@@ -88,17 +86,87 @@ class MainWindow(QMainWindow):
         dock_layout.addWidget(self.axis_group_box)
         dock_layout.addSpacing(10)
 
-        # ---- 점 초기화 버튼 ----
-        self.btn_clear_points = QPushButton("Clear Points")
+        # ---- 점 목록 UI ----
+        self.points_group_box = QGroupBox("Points List")
+        self.points_group_box.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+        # 점 목록이 실제로 표시될 위젯을 QScrollArea의 위젯으로 직접 설정 (불필요한 컨테이너 제거)
+        self.list_content_widget = QWidget()
+        self.point_list_layout = QVBoxLayout(self.list_content_widget)
+        self.point_list_layout.setAlignment(Qt.AlignTop)
+        self.point_list_layout.setContentsMargins(8, 4, 8, 4) # QScrollArea가 스크롤바 공간을 관리하므로 오른쪽 여백은 원래대로 8로 유지
+        self.point_list_layout.setSpacing(2)
+        
+        scroll_area.setWidget(self.list_content_widget) # list_content_widget을 직접 scroll_area의 위젯으로 설정
+        
+        points_group_layout = QVBoxLayout(self.points_group_box)
+        points_group_layout.setContentsMargins(6, 6, 6, 6)
+        points_group_layout.addWidget(scroll_area)
+
+        
+        dock_layout.addWidget(self.points_group_box)
+
+        # ---- 컨트롤 버튼 ----
+        dock_layout.addSpacing(10)
+        self.btn_clear_points = QPushButton("Clear All Points")
         self.btn_clear_points.clicked.connect(self.glWidget.clear_points)
         dock_layout.addWidget(self.btn_clear_points)
         
-        dock_layout.addStretch(1) # 모든 위젯을 위쪽으로 정렬
         dock.setWidget(dock_widget_content)
 
         # ---- 시그널-슬롯 연결 및 초기 상태 설정 ----
         self.glWidget.viewModeChanged.connect(self.on_view_mode_changed)
-        self.on_view_mode_changed(self.glWidget.view_mode) # 초기 상태 강제 설정
+        self.glWidget.pointsChanged.connect(self._update_point_list)
+        self.on_view_mode_changed(self.glWidget.view_mode) 
+        self._update_point_list()
+
+    def _update_point_list(self):
+        """점 목록이 변경될 때 호출되어 UI를 다시 그립니다."""
+        # 업데이트 중 위젯이 깜빡이는 것을 방지하기 위해 컨테이너를 숨깁니다.
+        self.list_content_widget.hide()
+
+        # 기존에 있던 위젯들을 모두 삭제
+        while self.point_list_layout.count():
+            child = self.point_list_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+            elif child.layout():
+                layout = child.layout()
+                while layout.count():
+                    sub_child = layout.takeAt(0)
+                    if sub_child.widget():
+                        sub_child.widget().deleteLater()
+                layout.deleteLater()
+
+        # 점 목록을 역순으로 순회하여 최신 점이 위로 오게 합니다.
+        for i in range(len(self.glWidget.points) - 1, -1, -1):
+            point = self.glWidget.points[i]
+            row_layout = QHBoxLayout()
+            row_layout.setAlignment(Qt.AlignVCenter) # 수직 중앙 정렬
+            
+            label = QLabel(f"P{i+1}: ({point[0]:.2f}, {point[1]:.2f})")
+            
+
+            delete_btn = QPushButton("×")
+            # setFixedSize를 제거하여 버튼 크기가 내용('×')에 맞게 자동 조절되도록 합니다.
+            # padding 스타일시트를 제거하여 기본 패딩을 사용합니다.
+            delete_btn.clicked.connect(lambda checked, index=i: self.glWidget.delete_point(index))
+            
+            row_layout.addWidget(label)
+            # Stretch를 추가하여 버튼을 항상 오른쪽으로 밀어 정렬시킵니다.
+            # 이렇게 하면 스크롤바 유무에 상관없이 버튼 위치가 고정됩니다.
+            row_layout.addStretch()
+            row_layout.addWidget(delete_btn)
+            
+            self.point_list_layout.addLayout(row_layout)
+        
+        # 업데이트가 완료된 후 컨테이너를 다시 표시합니다.
+        self.list_content_widget.show()
 
     def _on_rotation_axis_changed(self):
         """라디오 버튼 선택이 변경될 때 호출되어 회전 축 상태를 업데이트합니다."""
@@ -108,22 +176,17 @@ class MainWindow(QMainWindow):
             self.glWidget.set_rotation_axis('X')
 
     def on_view_mode_changed(self, mode):
-        """
-        뷰 모드 변경에 따라 UI 컨트롤들의 활성화 상태를 동기화합니다.
-        2D 편집 모드에서만 컨트롤들이 활성화됩니다.
-        """
+        """뷰 모드 변경에 따라 UI 컨트롤들의 활성화 상태를 동기화합니다."""
         is_2d_mode = (mode == '2D')
         
-        # 그룹박스 전체를 활성화/비활성화하여 내부 위젯들을 한 번에 제어합니다.
         self.slices_group_box.setEnabled(is_2d_mode)
         self.axis_group_box.setEnabled(is_2d_mode)
+        self.points_group_box.setEnabled(is_2d_mode)
         self.btn_clear_points.setEnabled(is_2d_mode)
 
         if is_2d_mode:
-            # 활성화 상태: HTML을 사용하여 텍스트에 색상과 밑줄을 적용합니다.
             self.label_x_axis.setText("Rotate around <font color='red'><u>X-axis</u></font>")
             self.label_y_axis.setText("Rotate around <font color='green'><u>Y-axis</u></font>")
         else:
-            # 비활성화 상태: 스타일이 없는 일반 텍스트로 설정하여, 시스템의 비활성화 색상(회색)이 적용되도록 합니다.
             self.label_x_axis.setText("Rotate around X-axis")
             self.label_y_axis.setText("Rotate around Y-axis")

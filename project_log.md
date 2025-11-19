@@ -161,3 +161,32 @@ Gemini와의 대화 내용, 주요 결정 사항, 작업 흐름 등을 기록하
     - 2D 편집 모드에서 프로파일 선이 격자선에 가려지는 문제를 해결했습니다.
     - `draw_grid`에서 격자를 z = -0.1 깊이에, `draw_points`에서 점과 선을 z = 0.1 깊이에 그리도록 `glVertex3f`를 사용하여 렌더링 순서를 명확히 구분했습니다. 이로써 프로파일 곡선이 항상 격자 위에 표시됩니다.
 - **UI 상태 관리 로직 단순화:** `on_view_mode_changed` 함수를 수정하여, 이제 두 `QGroupBox`의 활성화 상태만 제어하면 되도록 로직을 단순화하고 명확하게 만들었습니다. 이로써 2D/3D 모드 전환 시 모든 관련 컨트롤들이 일관되게 활성화/비활성화됩니다.
+
+---
+
+## 2025-11-19: 코드 모듈화 및 UI 기능 고도화
+
+기존의 단일 `main.py` 파일 구조에서 벗어나, 유지보수성과 코드 가독성을 높이기 위해 대대적인 리팩토링 및 기능 추가를 진행했습니다.
+
+### 1. 파일 구조 리팩토링 (모듈화)
+
+- **목표:** UI(창) 관련 코드와 OpenGL 렌더링 코드를 분리하여 각 부분의 역할을 명확히 하고 독립적으로 개발할 수 있도록 함.
+- **`main.py`:** 애플리케이션의 시작점(entry point) 역할만 수행하도록 코드를 최소화했습니다. 이제 `QApplication`을 생성하고 `ui_and_chang.py`에 정의된 `MainWindow`를 띄우는 역할만 담당합니다.
+- **`ui_and_chang.py`:** `MainWindow` 클래스를 포함한 모든 PyQt5 UI 요소(툴바, 버튼, 컨트롤 패널 등)의 생성과 레이아웃, 그리고 UI 이벤트 처리(시그널-슬롯) 로직을 담당합니다.
+- **`opengl_haeksim.py`:** `QOpenGLWidget`을 상속받는 `OpenGLWidget` 클래스가 위치하며, 모든 OpenGL 그래픽 처리(렌더링), 3D 데이터 관리(점, 모델 정점 등), 마우스 입력 처리 등 핵심 그래픽스 로직을 전담합니다.
+
+### 2. 회전축 선택 UI 구현
+
+- 컨트롤 패널에 "Rotation Axis" `QGroupBox`를 추가하여 SOR 모델 생성 시 사용할 회전축을 선택할 수 있는 기능을 구현했습니다.
+- **UI 구성:** X축과 Y축을 선택할 수 있는 두 개의 `QRadioButton`으로 구성되며, SOR 모델의 일반적인 형태를 고려하여 Y축을 기본 선택 값으로 설정했습니다.
+- **데이터 연동:** 라디오 버튼의 `toggled` 시그널은 `MainWindow`의 `_on_rotation_axis_changed` 슬롯에 연결됩니다. 이 슬롯은 `opengl_haeksim.py`의 `OpenGLWidget`에 있는 `set_rotation_axis(axis)` 메서드를 호출하여 선택된 축('X' 또는 'Y') 정보를 그래픽스 코어에 전달하고 저장합니다.
+
+### 3. 실시간 좌표 리스트 UI 추가
+
+- 사용자가 2D 편집 모드에서 찍은 점들의 좌표를 실시간으로 확인하고 관리할 수 있는 "Points List" UI를 `QGroupBox` 형태로 구현했습니다.
+- **동적 UI 생성:** `QScrollArea`와 `QVBoxLayout`을 기반으로, 점이 추가되거나 삭제될 때마다 목록을 동적으로 다시 그립니다. 최신 점이 가장 위에 표시되도록 역순으로 목록을 생성하여 사용 편의성을 높였습니다.
+- **시그널-슬롯 기반 실시간 업데이트:**
+    - `OpenGLWidget`에서 점이 추가(`mousePressEvent`)되거나 삭제(`delete_point`, `clear_points`)될 때마다 `pointsChanged`라는 커스텀 시그널을 발생시킵니다.
+    - `MainWindow`는 이 시그널을 `_update_point_list` 슬롯에 연결해두었습니다.
+    - 시그널이 수신되면, `_update_point_list` 함수는 기존 목록을 모두 지우고 `OpenGLWidget`의 `points` 리스트에 있는 최신 데이터를 기반으로 UI를 새로 구성하여 실시간 동기화를 구현했습니다.
+- **개별 점 삭제 기능:** 각 좌표 옆에 '×' 모양의 `QPushButton`을 추가했습니다. 이 버튼의 `clicked` 시그널은 특정 인덱스의 점을 삭제하는 `OpenGLWidget.delete_point(index)` 메서드와 `lambda`를 이용해 연결되어, 사용자가 원하는 점만 선택하여 삭제할 수 있습니다.
