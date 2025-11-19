@@ -153,8 +153,8 @@ class MainWindow(QMainWindow):
             
 
             delete_btn = QPushButton("×")
-            # setFixedSize를 제거하여 버튼 크기가 내용('×')에 맞게 자동 조절되도록 합니다.
-            # padding 스타일시트를 제거하여 기본 패딩을 사용합니다.
+            delete_btn.setFixedSize(24, 24) # Set fixed width and height for a square button
+            delete_btn.setStyleSheet("QPushButton { border-radius: 4px; }") # Optional: subtle rounding
             delete_btn.clicked.connect(lambda checked, index=i: self.glWidget.delete_point(index))
             
             row_layout.addWidget(label)
