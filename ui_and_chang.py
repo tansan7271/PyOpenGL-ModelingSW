@@ -92,8 +92,8 @@ class MainWindow(QMainWindow):
         
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        # scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         
         # 점 목록이 실제로 표시될 위젯을 QScrollArea의 위젯으로 직접 설정 (불필요한 컨테이너 제거)
         self.list_content_widget = QWidget()
