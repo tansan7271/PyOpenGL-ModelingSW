@@ -1,58 +1,77 @@
-# SOR 모델러 개발 보고서 초안
+# SOR 모델러 개발 보고서
 
-이 파일은 최종 보고서 작성을 위한 자료를 수집하는 공간입니다.
-프로젝트의 구조, 사용된 라이브러리, 핵심 코드 설명, 알고리즘, 그리고 오픈소스 활용 및 변형에 대한 내용을 기록합니다.
+이 문서는 PyOpenGL을 이용한 SOR(Surface of Revolution) 3D 모델러의 최종 시스템 구조와 핵심 알고리즘을 설명합니다.
 
-## 1. 프로젝트 개요ㅊㄹㅌㅋㅇㅎㄴㅇㄹㄴ혼허ㅗㅎ
+## 1. 프로젝트 개요
 
-- **프로젝트 명:** PyOpenGL을 이용한 SOR(Surface of Revolution) 3D 모델러
-- **개발 언어:** Python
+- **프로젝트 명:** PyOpenGL SOR 3D Modeler
+- **개발 언어:** Python 3.x
 - **핵심 라이브러리:**
-  - **PyQt5 (GUI):** 애플리케이션의 그래픽 사용자 인터페이스(GUI)를 구축합니다. 버튼, 메뉴, 창 등의 UI 요소를 생성하고 관리하며, PyOpenGL 위젯을 통합하는 컨테이너 역할을 합니다.
-  - **PyOpenGL (3D 렌더링):** 3D 그래픽을 렌더링하는 핵심 라이브러리입니다. SOR 모델의 생성, 시점 변환, 조명 효과 등 OpenGL의 그래픽 파이프라인을 Python에서 사용할 수 있게 해줍니다.
+  - **PyQt5:** GUI 프레임워크. 이벤트 루프 관리 및 UI 컴포넌트 제공.
+  - **PyOpenGL:** OpenGL 바인딩. 3D 렌더링 파이프라인 제어.
 
 ## 2. 시스템 아키텍처
 
-본 애플리케이션은 **관심사 분리(Separation of Concerns)** 원칙에 따라 설계되었으며, 코드의 가독성과 유지보수성을 높이기 위해 크게 3개의 모듈로 구성됩니다.
+본 애플리케이션은 **MVC(Model-View-Controller)** 패턴을 변형하여 관심사를 분리했습니다.
 
-- **`main.py` (Application Entry Point):** 애플리케이션의 시작점입니다. PyQt5 애플리케이션을 생성하고 메인 윈도우(`MainWindow`)를 실행하는 최소한의 역할만 담당합니다.
+### 2.1. 모듈 구성
 
-- **`ui_and_chang.py` (UI Layer):** 사용자 인터페이스(UI)의 생성과 관리를 전담합니다.
+1.  **`main.py` (Entry Point)**
 
-  - `MainWindow` 클래스가 정의되어 있으며, 툴바, 컨트롤 패널, 버튼 등 모든 UI 요소를 생성하고 배치합니다.
-  - 사용자의 입력(버튼 클릭 등)을 받는 시그널(Signal)을 처리하고, 이에 따른 동작을 `opengl_haeksim.py`의 핵심 로직에 요청하는 '컨트롤러' 역할을 수행합니다.
+    - 애플리케이션의 진입점입니다. `QApplication` 인스턴스를 생성하고 메인 윈도우를 실행합니다.
 
-- **`opengl_haeksim.py` (Core Logic / Graphics Engine):** 모든 그래픽 처리와 핵심 데이터 및 로직을 담당합니다.
-  - `OpenGLWidget` 클래스가 정의되어 있으며, 실제 OpenGL 렌더링을 수행합니다.
-  - 2D/3D 뷰 전환, 프로파일 점 관리, 좌표 변환, SOR 모델 데이터 생성 등 애플리케이션의 핵심 로직을 모두 포함하는 '모델'이자 '뷰' 역할을 합니다.
+2.  **`ui_and_chang.py` (View & Controller)**
 
-### 클래스 간 상호작용: 시그널-슬롯 메커니즘
+    - **UI 구성:** `MainWindow` 클래스에서 툴바, 도킹 위젯, 컨트롤 패널 등을 생성합니다.
+    - **이벤트 처리:** 사용자의 입력(버튼 클릭, 값 변경)을 시그널(Signal)로 받아 `OpenGLWidget`의 슬롯(Slot)을 호출하거나, `OpenGLWidget`의 상태 변화를 감지하여 UI를 갱신합니다.
+    - **동적 UI:** 2D 편집 모드와 3D 뷰 모드에 따라 컨트롤 패널의 구성을 동적으로 변경하여 사용자 경험을 최적화합니다.
 
-UI와 핵심 로직은 PyQt의 **시그널-슬롯(Signal-Slot)** 메커니즘을 통해 상호작용하여 결합도를 낮춥니다. `MainWindow`는 사용자 입력을 받아 `OpenGLWidget`의 메서드(슬롯)를 호출하고, `OpenGLWidget`은 내부 데이터 변경 시 시그널을 보내 `MainWindow`가 UI를 업데이트하도록 합니다.
-
-**예시: '점 삭제' 기능의 동작 흐름**
-
-1.  **[UI]** 사용자가 'Points List'에서 특정 점 옆의 '×' 버튼을 클릭합니다.
-2.  **[UI]** `ui_and_chang.py`의 `_update_point_list` 함수 내에서 해당 버튼의 `clicked` 시그널은 `lambda` 함수를 통해 `opengl_haeksim.py`에 있는 `glWidget.delete_point(index)` 메서드(슬롯)와 연결되어 있습니다.
-3.  **[Core Logic]** `delete_point(index)` 메서드가 호출되어 `self.points` 리스트에서 해당 인덱스의 점 데이터를 삭제합니다.
-4.  **[Core Logic]** 데이터 변경이 완료된 후, `delete_point` 메서드는 `self.pointsChanged.emit()` 코드를 통해 `pointsChanged` 시그널을 발생시킵니다.
-5.  **[UI]** `ui_and_chang.py`의 `_connect_signals` 함수에서 `glWidget.pointsChanged` 시그널은 `self._update_point_list` 슬롯과 미리 연결되어 있습니다.
-6.  **[UI]** 시그널이 수신되면 `_update_point_list` 함수가 자동으로 실행되고, 변경된 `glWidget.points` 리스트를 기반으로 점 목록 UI를 새로 그려 화면을 갱신합니다.
-
-이러한 구조를 통해 UI 코드는 그래픽 처리의 상세 로직을 알 필요가 없으며, 그래픽스 코드는 UI의 구체적인 형태를 알 필요 없이 독립적으로 개발 및 수정이 가능합니다.
+3.  **`opengl_haeksim.py` (Model & View)**
+    - **Core Logic:** `OpenGLWidget` 클래스에서 실제 데이터(점, 3D 메쉬)를 관리하고 렌더링합니다.
+    - **Rendering Pipeline:** `initializeGL`, `resizeGL`, `paintGL`을 오버라이딩하여 OpenGL 상태 설정, 투영 행렬 계산, 렌더링 루프를 제어합니다.
+    - **Interaction:** 마우스 이벤트를 처리하여 2D 점 추가, 드래그 이동, 선택 삭제 기능을 수행합니다.
 
 ## 3. 핵심 기능 및 알고리즘
 
 ### 3.1. SOR (Surface of Revolution) 알고리즘
 
-- (여기에 SOR 알고리즘 구현에 대한 설명을 추가합니다.)
+2D 프로파일 곡선을 특정 축을 기준으로 회전시켜 3D 메쉬를 생성하는 알고리즘입니다.
 
-### 3.2. 데이터 저장 포맷
+1.  **회전 각도 계산:** 360도를 사용자가 설정한 `단면 개수(slices)`로 나누어 단위 회전각 $\theta$를 구합니다.
+2.  **정점 생성 (Vertex Generation):**
+    - 2D 프로파일의 각 점 $(x, y)$에 대해 회전 행렬을 적용하여 3D 좌표 $(x', y', z')$를 계산합니다.
+    - **Y축 회전 시:**
+      $$x' = x \cos(k\theta)$$
+      $$y' = y$$
+      $$z' = -x \sin(k\theta)$$
+      (여기서 $k$는 현재 단면의 인덱스)
+3.  **면 생성 (Face Generation):**
+    - 인접한 두 단면($k, k+1$)과 두 점($i, i+1$)을 연결하여 사각형(Quad) 면을 구성합니다.
+    - 인덱스 순서: $(k, i) \rightarrow (k, i+1) \rightarrow (k+1, i+1) \rightarrow (k+1, i)$
 
-- (여기에 `.dat` 파일 저장 형식에 대한 설명을 추가합니다.)
+### 3.2. 렌더링 및 조명 (Rendering & Lighting)
 
-## 4. 오픈소스 활용 및 수정 내역
+- **렌더링 모드:**
+  - **Wireframe:** `glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)`을 사용하여 메쉬의 엣지만 렌더링.
+  - **Solid/Flat/Gouraud:** `glPolygonMode(..., GL_FILL)`과 `glShadeModel(GL_FLAT/GL_SMOOTH)`를 조합하여 다양한 질감 표현.
+- **조명 시스템 (Dual Lighting):**
+  - **Key Light (GL_LIGHT0):** 우측 상단 전면에서 강한 빛을 비추어 주된 형태를 잡습니다.
+  - **Fill Light (GL_LIGHT1):** 좌측 상단 후면에서 약한 빛을 비추어 그림자 영역의 디테일을 살리고 입체감을 더합니다.
+  - **Material:** `GL_COLOR_MATERIAL`을 사용하여 객체의 색상이 조명과 반응하도록 설정했습니다.
 
-- (여기에 참고한 오픈소스와 어떻게 수정하여 독창성을 확보했는지 기록합니다.)
+### 3.3. 데이터 저장 포맷 (.dat v5)
 
----
+자체 정의한 텍스트 기반 포맷으로, 2D 편집 상태와 3D 모델 데이터를 모두 저장합니다.
+
+- **구조:**
+  1.  **헤더:** 단면 수, 회전축, 렌더링 모드, 색상 정보.
+  2.  **2D 경로:** 다중 경로(Multi-path) 지원. 각 경로의 점 개수, 닫힘 여부, 좌표 리스트.
+  3.  **3D 메쉬:** 생성된 정점 리스트와 면(Quad) 인덱스 리스트.
+
+## 4. 오픈소스 활용 및 독창성
+
+- **기반 코드:** PyOpenGL의 기본적인 윈도우 셋업 및 `gluLookAt` 활용 예제를 참고했습니다.
+- **독창적 구현:**
+  - **동적 UI 시스템:** 2D/3D 모드에 따라 UI가 실시간으로 변하는 로직을 직접 설계했습니다.
+  - **다중 경로 편집기:** 단순한 점 찍기를 넘어, 여러 개의 닫힌/열린 도형을 관리하고 드래그로 수정하며 스냅(Snap) 기능까지 지원하는 벡터 편집기를 직접 구현했습니다.
+  - **이중 조명 시스템:** 입체감을 극대화하기 위해 Key/Fill Light 조합을 고안하고 적용했습니다.
