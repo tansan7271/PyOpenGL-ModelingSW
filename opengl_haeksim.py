@@ -1,108 +1,121 @@
 # -*- coding: utf-8 -*-
 """
-PyOpenGL SOR Modeler의 핵심 OpenGL 렌더링 위젯
+PyOpenGL SOR & Sweep Modeler의 핵심 OpenGL 렌더링 위젯
 
 이 파일은 PyQt5의 QOpenGLWidget을 상속받아 실제 그래픽 렌더링을 담당하는
-OpenGLWidget 클래스를 정의합니다. 2D 프로파일 곡선 편집과 3D SOR 모델 뷰를
-위한 모든 그래픽 처리, 사용자 입력(마우스), 3D 데이터 관리 및 생성을 담당합니다.
+OpenGLWidget 클래스를 정의합니다. 2D 프로파일 곡선 편집, 3D SOR/Sweep 모델 생성,
+사용자 입력(마우스/키보드) 처리, 데이터 관리 및 파일 입출력을 담당합니다.
 """
 
 import math
 from PyQt5.QtWidgets import QOpenGLWidget
 from PyQt5.QtCore import pyqtSignal
-
-# PyOpenGL에서 OpenGL 함수들을 직접 사용하기 위해 import 합니다.
-# 'import *'는 일반적으로 권장되지 않지만, PyOpenGL에서는 gl* 형태의 함수를
-# 간결하게 사용하기 위한 관례적인 방법입니다.
+from PyQt5.QtGui import QPainter, QColor, QFont
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
 class OpenGLWidget(QOpenGLWidget):
     """
-    PyQt5의 QOpenGLWidget을 상속받아 OpenGL 렌더링을 수행하는 핵심 위젯입니다.
-    2D 프로파일 편집 모드와 3D 모델 뷰 모드를 가지며, 모든 그래픽 처리 및 사용자 입력을 담당합니다.
+    OpenGL 렌더링 및 모델링 로직을 담당하는 핵심 위젯 클래스입니다.
+    
+    주요 기능:
+    - 2D 프로파일 편집 (점 추가, 이동, 삭제)
+    - 3D 모델 생성 (SOR: 회전체, Sweep: 스윕 곡면)
+    - 3D 뷰 네비게이션 (Orbit, Zoom)
+    - 파일 입출력 (.dat 포맷 v6)
     """
-    #--- 시그널 정의 ---
-    # 뷰 모드가 변경될 때 ('2D' 또는 '3D') MainWindow에 알리는 시그널
+    
+    # --- 시그널 (Signals) ---
+    # 뷰 모드가 변경될 때 ('2D' 또는 '3D') MainWindow에 알림
     viewModeChanged = pyqtSignal(str)
-    # 점 목록이 추가, 삭제, 초기화될 때 MainWindow에 알려 UI를 갱신하게 하는 시그널
+    # 점 데이터가 변경될 때 (추가/삭제/이동/로드) MainWindow에 알림 (UI 갱신용)
     pointsChanged = pyqtSignal()
 
     def __init__(self, parent=None):
-        """OpenGLWidget의 생성자입니다. 각종 상태 변수와 모델 데이터를 초기화합니다."""
+        """생성자: 초기 상태 변수 및 데이터 구조 초기화"""
         super().__init__(parent)
         
-        #--- 상태 변수 ---
+        # --- 뷰 상태 (View State) ---
         self.view_mode = '2D'  # 현재 뷰 모드 ('2D' 또는 '3D')
-        self.rotation_axis = 'Y'  # SOR 모델 생성 시 사용할 회전 축 ('X' 또는 'Y')
-        self.num_slices = 30  # SOR 모델의 단면 개수
         
-        #--- 2D/3D 투영 관련 변수 ---
-        # 2D 직교 투영(Orthographic projection)의 좌우상하 경계
-        self.ortho_left, self.ortho_right, self.ortho_bottom, self.ortho_top = -10, 10, -10, 10
+        # --- 2D 투영 설정 (2D Projection Settings) ---
+        self.ortho_left = -10
+        self.ortho_right = 10
+        self.ortho_bottom = -10
+        self.ortho_top = 10
         
-        #--- 3D 모델 데이터 ---
-        #--- 3D 모델 데이터 ---
-        # self.paths: 각 경로는 {'points': [(x,y), ...], 'closed': True/False} 형태의 딕셔너리
+        # --- 3D 카메라 상태 (3D Camera State) ---
+        self.cam_radius = 20.0 # 카메라 거리 (Zoom)
+        self.cam_theta = 45.0  # 방위각 (Azimuth)
+        self.cam_phi = 45.0    # 고도각 (Elevation)
+        self.last_mouse_pos = None # 마우스 드래그 처리를 위한 이전 위치 저장
+        
+        # --- 모델링 데이터 (Modeling Data - Input) ---
+        # 다중 경로 지원: [{'points': [(x,y), ...], 'closed': bool}, ...]
         self.paths = [{'points': [], 'closed': False}]
-        self.current_path_idx = 0 # 현재 편집 중인 경로의 인덱스
-        self.dragging_point = None # 현재 드래그 중인 점의 정보 (path_idx, point_idx)
+        self.current_path_idx = 0 # 현재 편집 중인 경로 인덱스
+        self.dragging_point = None # 드래그 중인 점 정보 (path_idx, point_idx)
         
-        self.sor_vertices = []  # 생성된 SOR 모델의 정점(vertex) 리스트
-        self.sor_normals = []   # 생성된 SOR 모델의 법선(normal) 리스트 (조명용)
-        self.sor_faces = []  # 생성된 SOR 모델의 면(face) 리스트
+        # --- 모델링 파라미터 (Modeling Parameters) ---
+        # 1. SOR (Surface of Revolution)
+        self.rotation_axis = 'Y' # 회전 축 ('X' 또는 'Y')
+        self.num_slices = 30     # 회전 분할 수
         
-        #--- 3D 렌더링 설정 ---
-        self.render_mode = 1 # 0: Wireframe, 1: Solid, 2: Flat, 3: Gouraud
-        self.model_color = (0.0, 0.8, 0.8) # 기본 색상 (Cyan)
+        # 2. Sweep Surface
+        self.modeling_mode = 0   # 0: SOR, 1: Sweep
+        self.sweep_length = 10.0 # 스윕 길이
+        self.sweep_twist = 0.0   # 스윕 비틀림 각도 (도)
+        self.sweep_caps = False  # 양 끝 닫기 여부
+        
+        # --- 생성된 3D 모델 데이터 (Generated 3D Model Data) ---
+        self.sor_vertices = [] # 3D 정점 리스트 [(x,y,z), ...]
+        self.sor_normals = []  # 정점 법선 리스트 [(nx,ny,nz), ...]
+        self.sor_faces = []    # 면 리스트 [[v1, v2, v3, ...], ...]
+        
+        # --- 렌더링 설정 (Rendering Settings) ---
+        self.render_mode = 1         # 0: Wireframe, 1: Solid, 2: Flat, 3: Gouraud
+        self.model_color = (0.0, 0.8, 0.8) # 모델 색상 (Cyan)
         self.projection_mode = 'Perspective' # 'Perspective' or 'Ortho'
-        self.show_wireframe = True # 와이어프레임 토글 상태 (기본값 True)
+        self.show_wireframe = True   # 와이어프레임 오버레이 여부
 
-    # === OpenGL Lifecycle Methods ===
+    # =========================================================================
+    # OpenGL 생명주기 메서드 (OpenGL Lifecycle Methods)
+    # =========================================================================
 
     def initializeGL(self):
-        """
-        OpenGL이 처음 초기화될 때 한 번 호출됩니다.
-        전역적인 OpenGL 상태(배경색, 깊이 테스트 등)를 설정합니다.
-        """
-        glClearColor(0.1, 0.1, 0.1, 1.0)  # 배경색을 어두운 회색으로 설정
-        glEnable(GL_DEPTH_TEST)  # 깊이 테스트 활성화 (3D에서 앞뒤 구분)
-        glPointSize(5.0)  # 2D 편집 시 점의 크기를 설정
+        """OpenGL 초기화: 최초 1회 호출되어 기본 상태를 설정합니다."""
+        glClearColor(0.1, 0.1, 0.1, 1.0) # 배경색: 어두운 회색
+        glEnable(GL_DEPTH_TEST)          # 깊이 테스트 활성화
+        glPointSize(5.0)                 # 점 크기 설정 (2D 편집용)
         
-        # 조명 및 재질 설정
-        glEnable(GL_NORMALIZE) # 법선 벡터 정규화 (조명 계산 정확도 향상)
-        glEnable(GL_COLOR_MATERIAL) # glColor가 재질 색상에 반영되도록 설정
-        glColorMaterial(GL_FRONT, GL_AMBIENT_AND_DIFFUSE) # 앞면의 Ambient와 Diffuse에 적용
+        # 조명 및 재질 기본 설정
+        glEnable(GL_NORMALIZE) # 법선 정규화 (스케일 변환 시 조명 유지)
+        glEnable(GL_COLOR_MATERIAL) # glColor로 재질 색상 제어
+        glColorMaterial(GL_FRONT, GL_AMBIENT_AND_DIFFUSE)
         
-        # 조명 설정은 paintGL에서 매 프레임 설정하거나, 
-        # 뷰 변환 후에 설정해야 카메라/월드 기준이 명확해짐.
-        # 여기서는 초기화만 수행.
-        # Key Light (주 조명) - 우측 상단
+        # 조명 활성화 (Light0: Key, Light1: Fill)
         glEnable(GL_LIGHT0)
+        glEnable(GL_LIGHT1)
+        
+        # 조명 속성 설정 (위치는 paintGL에서 설정)
         glLightfv(GL_LIGHT0, GL_AMBIENT, (0.2, 0.2, 0.2, 1.0))
         glLightfv(GL_LIGHT0, GL_DIFFUSE, (0.8, 0.8, 0.8, 1.0))
         
-        # Fill Light (보조 조명) - 좌측 상단, 약하게
-        glEnable(GL_LIGHT1)
         glLightfv(GL_LIGHT1, GL_AMBIENT, (0.1, 0.1, 0.1, 1.0))
         glLightfv(GL_LIGHT1, GL_DIFFUSE, (0.4, 0.4, 0.4, 1.0))
 
     def resizeGL(self, w, h):
-        """위젯의 크기가 조절될 때마다 호출됩니다. 뷰포트와 투영을 재설정합니다."""
-        glViewport(0, 0, w, h)  # 뷰포트를 위젯 전체 크기로 설정
-        self.setupProjection()  # 크기 변경에 맞춰 투영 행렬을 다시 계산
+        """위젯 크기 변경 시 호출: 뷰포트 및 투영 행렬 재설정"""
+        glViewport(0, 0, w, h)
+        self.setupProjection()
 
     def paintGL(self):
-        """
-        화면을 다시 그려야 할 때마다 호출되는 메인 렌더링 함수입니다.
-        뷰 모드에 따라 적절한 그리기 함수들을 호출합니다.
-        """
+        """렌더링 루프: 매 프레임 화면을 그립니다."""
         try:
             # 1. 투영 행렬 설정
             self.setupProjection()
             
             # 2. 버퍼 초기화
-            # 깊이 버퍼 쓰기를 활성화해야 깊이 버퍼가 제대로 지워짐 (Ghosting 방지)
             glDepthMask(GL_TRUE)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
             
@@ -110,638 +123,637 @@ class OpenGLWidget(QOpenGLWidget):
             glMatrixMode(GL_MODELVIEW)
             glLoadIdentity()
 
-            # 4. 뷰 모드에 따른 분기 렌더링
-            # 4. 뷰 모드에 따른 분기 렌더링
+            # 4. 모드별 렌더링
             if self.view_mode == '2D':
-                # 2D 렌더링에 필요한 상태 강제 설정 (Explicit State Setup)
-                glDisable(GL_LIGHTING)
-                glDisable(GL_CULL_FACE)
-                glDisable(GL_DEPTH_TEST) # 2D에서는 깊이 테스트 불필요 (순서대로 그림)
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+                self._render_2d_scene()
+            else:
+                self._render_3d_scene()
                 
-                self.draw_grid()
-                self.draw_points()
+                # 5. 3D 안내 텍스트 오버레이 (QPainter 사용)
+                # QPainter는 OpenGL 렌더링이 끝난 후 호출해야 함
+                painter = QPainter(self)
+                painter.setRenderHint(QPainter.TextAntialiasing)
+                painter.setPen(QColor(255, 255, 255))
+                painter.setFont(QFont("Arial", 10))
                 
-            else:  # '3D'
-                # 3D 렌더링에 필요한 상태 강제 설정
-                glEnable(GL_DEPTH_TEST)
+                painter.drawText(10, 20, "Drag to Look Around")
+                painter.drawText(10, 40, "Scroll to Zoom In/Out")
                 
-                # 3D 뷰의 카메라 위치와 방향 설정
-                gluLookAt(10, 10, 20, 0, 0, 0, 0, 1, 0)
+                painter.end()
                 
-                # 조명 위치 설정 (카메라 변환 후, 모델 변환 전 = 월드 좌표계 고정)
-                # Key Light: 우측 상단 전면 (100, 100, 100)
-                glLightfv(GL_LIGHT0, GL_POSITION, (100, 100, 100, 1.0))
-                
-                # Fill Light: 좌측 상단 후면 (-100, 100, -100)
-                glLightfv(GL_LIGHT1, GL_POSITION, (-100, 100, -100, 1.0))
-                
-                # SOR 모델 데이터가 있으면 모델을 그리고, 없으면 좌표축을 그림
-                if self.sor_vertices:
-                    self.draw_sor_model()
-                else:
-                    self.draw_axes()
         except Exception as e:
             print(f"paintGL Error: {e}")
             import traceback
             traceback.print_exc()
 
-    # === Core Logic Methods ===
+    # =========================================================================
+    # 렌더링 로직 (Rendering Logic)
+    # =========================================================================
 
     def setupProjection(self):
-        """
-        현재 뷰 모드에 따라 투영(Projection) 행렬을 설정합니다.
-        이는 3D 공간의 객체들을 2D 화면에 어떻게 보여줄지 결정하는 중요한 단계입니다.
-        """
+        """현재 뷰 모드와 창 크기에 맞춰 투영 행렬을 설정합니다."""
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
 
         w, h = self.width(), self.height()
         if h == 0: h = 1
-        aspect_ratio = w / h  # 화면의 종횡비
+        aspect_ratio = w / h
 
         if self.view_mode == '2D':
-            # 2D 모드: 직교 투영(Orthographic Projection) 사용.
-            # 원근감이 없어 모든 객체가 크기 그대로 평평하게 보입니다. 2D 편집에 적합합니다.
-            # 창 크기 변경 시 종횡비가 유지되도록 좌우 경계를 조정합니다.
+            # 2D: 직교 투영 (Orthographic) - 종횡비 유지
             self.ortho_left = -10 * aspect_ratio
             self.ortho_right = 10 * aspect_ratio
             self.ortho_bottom = -10
             self.ortho_top = 10
             glOrtho(self.ortho_left, self.ortho_right, self.ortho_bottom, self.ortho_top, -1, 1)
-        else:  # '3D'
-            # 3D 모드: 원근 투영(Perspective) 또는 직교 투영(Ortho)
+        else:
+            # 3D: 원근(Perspective) 또는 직교(Ortho) 투영
             if self.projection_mode == 'Perspective':
                 gluPerspective(45, aspect_ratio, 0.1, 100.0)
             else:
-                # 3D Ortho 모드: 2D와 비슷하지만 Z축 깊이가 있음
-                # 적절한 범위를 설정해야 함 (예: -10 ~ 10)
-                scale = 10
+                scale = self.cam_radius * 0.5
                 glOrtho(-scale * aspect_ratio, scale * aspect_ratio, -scale, scale, -100, 100)
 
-    def mousePressEvent(self, event):
-        """
-        마우스 클릭 이벤트를 처리합니다.
-        1. 점 드래그 시작 (기존 점 클릭 시)
-        2. 새로운 점 추가
-        """
-        if self.view_mode == '2D':
-            screen_x, screen_y = event.x(), event.y()
-            gl_y = self.height() - screen_y
-            
-            world_x = self.ortho_left + (screen_x / self.width()) * (self.ortho_right - self.ortho_left)
-            world_y = self.ortho_bottom + (gl_y / self.height()) * (self.ortho_top - self.ortho_bottom)
-            
-            snap_threshold = 0.3
-            clicked_point = (world_x, world_y)
-            
-            # 1. 히트 테스트 (Hit Test) - 기존 점을 클릭했는지 확인
-            for p_idx, path_data in enumerate(self.paths):
-                path_points = path_data['points']
-                for pt_idx, pt in enumerate(path_points):
-                    dist = math.sqrt((pt[0] - world_x)**2 + (pt[1] - world_y)**2)
-                    if dist < snap_threshold:
-                        # 기존 점 클릭 -> 드래그 모드 시작
-                        self.dragging_point = (p_idx, pt_idx)
-                        return
+    def _render_2d_scene(self):
+        """2D 편집 모드 렌더링"""
+        # 2D용 상태 설정
+        glDisable(GL_LIGHTING)
+        glDisable(GL_CULL_FACE)
+        glDisable(GL_DEPTH_TEST)
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+        
+        self.draw_grid()   # 배경 격자
+        self.draw_points() # 프로파일 점 및 선
 
-            # 2. 새로운 점 추가
-            # 드래그가 아니라면 현재 경로에 점 추가
-            # 단, 현재 경로가 이미 닫혀있다면(closed=True), 새로운 경로를 시작해야 함 (close_current_path에서 처리됨)
-            # 하지만 여기서는 close_current_path를 호출하지 않고 점만 추가함.
-            # 사용자가 'Close Path' 버튼을 누르지 않았다면 계속 점을 추가할 수 있음.
-            self.paths[self.current_path_idx]['points'].append(clicked_point)
-            
-            self.update()
-            self.pointsChanged.emit()
-
-    def mouseMoveEvent(self, event):
-        """마우스 드래그 시 점의 위치를 실시간으로 업데이트합니다."""
-        if self.view_mode == '2D' and self.dragging_point:
-            screen_x, screen_y = event.x(), event.y()
-            gl_y = self.height() - screen_y
-            
-            world_x = self.ortho_left + (screen_x / self.width()) * (self.ortho_right - self.ortho_left)
-            world_y = self.ortho_bottom + (gl_y / self.height()) * (self.ortho_top - self.ortho_bottom)
-            
-            # 드래그 중인 점의 좌표 업데이트
-            path_idx, pt_idx = self.dragging_point
-            self.paths[path_idx]['points'][pt_idx] = (world_x, world_y)
-            
-            self.update()
-            self.pointsChanged.emit()
-
-    def mouseReleaseEvent(self, event):
-        """마우스 버튼을 떼면 드래그 모드를 종료합니다."""
-        if self.view_mode == '2D':
-            self.dragging_point = None
-
-    # === Drawing Helper Methods ===
+    def _render_3d_scene(self):
+        """3D 뷰 모드 렌더링"""
+        # 3D용 상태 설정
+        glEnable(GL_DEPTH_TEST)
+        
+        # 카메라 설정 (Orbit Control)
+        rad_theta = math.radians(self.cam_theta)
+        rad_phi = math.radians(self.cam_phi)
+        
+        eye_x = self.cam_radius * math.sin(rad_phi) * math.cos(rad_theta)
+        eye_y = self.cam_radius * math.cos(rad_phi)
+        eye_z = self.cam_radius * math.sin(rad_phi) * math.sin(rad_theta)
+        
+        gluLookAt(eye_x, eye_y, eye_z, 0, 0, 0, 0, 1, 0)
+        
+        # 조명 위치 설정 (View Matrix 적용 후 = World Space 고정)
+        glLightfv(GL_LIGHT0, GL_POSITION, (100, 100, 100, 1.0))   # Key Light
+        glLightfv(GL_LIGHT1, GL_POSITION, (-100, -100, -100, 1.0)) # Fill Light
+        
+        self.draw_world_grid() # 바닥 그리드
+        
+        if self.sor_vertices:
+            self.draw_model() # 생성된 모델
+        else:
+            self.draw_axes()  # 모델 없으면 축만 표시
 
     def draw_grid(self):
-        """2D 편집 모드에서 배경에 격자와 기준 축을 그립니다."""
-        # 격자 선을 프로파일 곡선보다 뒤에 그리기 위해 z값을 약간 음수로 설정 (Z-fighting 방지)
+        """2D 배경 격자 그리기"""
         z_grid = -0.1
-        
-        # 현재 뷰포트 크기에 맞춰 격자의 범위를 동적으로 계산
         x_start, x_end = math.floor(self.ortho_left), math.ceil(self.ortho_right)
         y_start, y_end = math.floor(self.ortho_bottom), math.ceil(self.ortho_top)
         
-        # 회색 격자선 그리기
         glColor3f(0.3, 0.3, 0.3)
         glBegin(GL_LINES)
         for i in range(x_start, x_end + 1):
-            if i == 0: continue # 축선은 따로 그리므로 건너뜀
-            glVertex3f(i, y_start, z_grid)
-            glVertex3f(i, y_end, z_grid)
+            if i == 0: continue
+            glVertex3f(i, y_start, z_grid); glVertex3f(i, y_end, z_grid)
         for i in range(y_start, y_end + 1):
             if i == 0: continue
-            glVertex3f(x_start, i, z_grid)
-            glVertex3f(x_end, i, z_grid)
+            glVertex3f(x_start, i, z_grid); glVertex3f(x_end, i, z_grid)
         glEnd()
 
-        # X축(빨강), Y축(초록) 그리기
+        # 축 그리기
         glBegin(GL_LINES)
-        glColor3f(1.0, 0.0, 0.0)
-        glVertex3f(x_start, 0, z_grid)
-        glVertex3f(x_end, 0, z_grid)
-        glColor3f(0.0, 1.0, 0.0)
-        glVertex3f(0, y_start, z_grid)
-        glVertex3f(0, y_end, z_grid)
+        glColor3f(1.0, 0.0, 0.0); glVertex3f(x_start, 0, z_grid); glVertex3f(x_end, 0, z_grid) # X축
+        glColor3f(0.0, 1.0, 0.0); glVertex3f(0, y_start, z_grid); glVertex3f(0, y_end, z_grid) # Y축
         glEnd()
 
     def draw_points(self):
-        """사용자가 추가한 점들과 그 점들을 잇는 프로파일 곡선을 그립니다."""
-        # 점과 선을 격자보다 앞에 그리기 위해 z값을 양수로 설정 (Z-fighting 방지)
+        """2D 프로파일 점과 선 그리기"""
         z_points = 0.1
         
         for path_data in self.paths:
             path = path_data['points']
             is_closed = path_data['closed']
-            
-            if not path:
-                continue
+            if not path: continue
                 
-            # 점이 2개 이상일 때, 점들을 잇는 흰색 선(프로파일 곡선)을 그립니다.
+            # 선 그리기
             if len(path) > 1:
-                glColor3f(1.0, 1.0, 1.0) # 흰색
-                if is_closed:
-                    glBegin(GL_LINE_LOOP) # 닫힌 도형
-                else:
-                    glBegin(GL_LINE_STRIP) # 열린 도형
-                    
-                for p in path:
-                    glVertex3f(p[0], p[1], z_points)
+                glColor3f(1.0, 1.0, 1.0)
+                glBegin(GL_LINE_LOOP if is_closed else GL_LINE_STRIP)
+                for p in path: glVertex3f(p[0], p[1], z_points)
                 glEnd()
                 
-            # 각 점을 노란색으로 그립니다.
-            glColor3f(1.0, 1.0, 0.0) # 노란색
+            # 점 그리기
+            glColor3f(1.0, 1.0, 0.0)
             glBegin(GL_POINTS)
-            for p in path:
-                glVertex3f(p[0], p[1], z_points)
+            for p in path: glVertex3f(p[0], p[1], z_points)
             glEnd()
 
     def draw_axes(self):
-        """3D 뷰에서 원점에 R,G,B 색상의 X,Y,Z 좌표축을 그립니다."""
+        """3D 좌표축 그리기 (R,G,B)"""
         glBegin(GL_LINES)
-        # X축 (빨강)
-        glColor3f(1.0, 0.0, 0.0)
-        glVertex3f(0, 0, 0)
-        glVertex3f(1, 0, 0)
-        # Y축 (초록)
-        glColor3f(0.0, 1.0, 0.0)
-        glVertex3f(0, 0, 0)
-        glVertex3f(0, 1, 0)
-        # Z축 (파랑)
-        glColor3f(0.0, 0.0, 1.0)
-        glVertex3f(0, 0, 0)
-        glVertex3f(0, 0, 1)
+        glColor3f(1, 0, 0); glVertex3f(0,0,0); glVertex3f(1,0,0) # X
+        glColor3f(0, 1, 0); glVertex3f(0,0,0); glVertex3f(0,1,0) # Y
+        glColor3f(0, 0, 1); glVertex3f(0,0,0); glVertex3f(0,0,1) # Z
         glEnd()
 
-    def draw_sor_model(self):
-        """
-        생성된 SOR 모델의 정점과 면 데이터를 사용하여 3D 모델을 그립니다.
-        GL_QUADS를 사용하여 면을 구성하고, 기본적인 조명을 위한 법선 벡터(Normal Vector) 계산은
-        추후 고도화 단계에서 고려합니다. 현재는 기하학적 형태를 확인하는 데 집중합니다.
-        """
-        if not self.sor_vertices or not self.sor_faces:
-            self.draw_axes()
-            return
-
-
-
-        # 모델의 윤곽선을 더 잘 보이게 하기 위해 와이어프레임을 덧그립니다. (선택 사항)
-        # 렌더링 모드에 따라 다르게 그림
+    def draw_world_grid(self):
+        """3D 바닥 격자 그리기"""
+        y_floor = -10.0
+        grid_size = 20
+        step = 2
         
-        # 조명/재질 설정 초기화 (Explicit Reset)
+        glDisable(GL_LIGHTING)
+        glColor3f(0.3, 0.3, 0.3)
+        glBegin(GL_LINES)
+        for i in range(-grid_size, grid_size + 1, step):
+            glVertex3f(-grid_size, y_floor, i); glVertex3f(grid_size, y_floor, i) # X방향
+            glVertex3f(i, y_floor, -grid_size); glVertex3f(i, y_floor, grid_size) # Z방향
+        glEnd()
+
+    def draw_model(self):
+        """3D 모델 렌더링 (Solid, Wireframe, Shading)"""
+        # 렌더링 모드 설정
         glDisable(GL_LIGHTING)
         glDisable(GL_CULL_FACE)
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
         glShadeModel(GL_FLAT)
 
-        # --- 1. 기본 모델 그리기 ---
         if self.render_mode == 0: # Wireframe
-            # Wireframe 모드에서는 흰색 선으로 그림
             glColor3f(1.0, 1.0, 1.0)
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
             self._draw_faces()
             
-        elif self.render_mode == 1: # Solid (No Lighting)
+        elif self.render_mode == 1: # Solid
             glColor3f(*self.model_color)
             self._draw_faces()
             
         elif self.render_mode == 2: # Flat Shading
             glEnable(GL_LIGHTING)
             glShadeModel(GL_FLAT)
-            # 재질 설정은 GL_COLOR_MATERIAL 덕분에 glColor로 처리됨
             glColor3f(*self.model_color)
             self._draw_faces()
             
         elif self.render_mode == 3: # Gouraud Shading
             glEnable(GL_LIGHTING)
             glShadeModel(GL_SMOOTH)
-            # 재질 설정은 GL_COLOR_MATERIAL 덕분에 glColor로 처리됨
             glColor3f(*self.model_color)
             self._draw_faces()
 
-        # --- 2. 와이어프레임 오버레이 (옵션) ---
-        # Wireframe 모드가 아니고, show_wireframe이 켜져있을 때만 덧그림
+        # Wireframe Overlay
         if self.render_mode != 0 and self.show_wireframe:
-            glDisable(GL_LIGHTING) # 조명 끄고
-            glColor3f(1.0, 1.0, 1.0) # 흰색
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE) # 라인 모드
-            
-            # Z-fighting 방지를 위한 Polygon Offset
+            glDisable(GL_LIGHTING)
+            glColor3f(1.0, 1.0, 1.0)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
             glEnable(GL_POLYGON_OFFSET_LINE)
             glPolygonOffset(-1.0, -1.0)
-            
             self._draw_faces()
-            
             glDisable(GL_POLYGON_OFFSET_LINE)
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL) # 다시 채우기 모드로 복구
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
 
     def _draw_faces(self):
-        """실제 면을 그리는 내부 함수"""
+        """면 그리기 (Quads/Triangles 분리)"""
+        # 1. Quads (사각형 면)
         glBegin(GL_QUADS)
         for face in self.sor_faces:
-            for vertex_idx in face:
-                # 법선 벡터가 있으면 설정 (조명용)
-                if vertex_idx < len(self.sor_normals):
-                    nx, ny, nz = self.sor_normals[vertex_idx]
-                    glNormal3f(nx, ny, nz)
-                    
-                v = self.sor_vertices[vertex_idx]
-                glVertex3f(v[0], v[1], v[2])
+            if len(face) == 4:
+                for idx in face:
+                    if idx < len(self.sor_normals):
+                        glNormal3f(*self.sor_normals[idx])
+                    glVertex3f(*self.sor_vertices[idx])
         glEnd()
 
-    # === Data Generation and Manipulation ===
+        # 2. Triangles (삼각형 면 - Caps 등)
+        glBegin(GL_TRIANGLES)
+        for face in self.sor_faces:
+            if len(face) == 3:
+                for idx in face:
+                    if idx < len(self.sor_normals):
+                        glNormal3f(*self.sor_normals[idx])
+                    glVertex3f(*self.sor_vertices[idx])
+        glEnd()
 
-    def generate_sor_model(self):
-        """
-        모든 2D 프로파일 경로(self.paths)를 기반으로 SOR 모델 데이터를 생성합니다.
-        여러 개의 떨어진 도형도 모두 처리하여 하나의 모델로 합칩니다.
-        """
+    # =========================================================================
+    # 사용자 입력 처리 (User Input Handling)
+    # =========================================================================
+
+    def mousePressEvent(self, event):
+        """마우스 클릭: 2D 점 추가/선택 또는 3D 회전 시작"""
+        if self.view_mode == '2D':
+            # 좌표 변환 (Screen -> World)
+            wx, wy = self._screen_to_world(event.x(), event.y())
+            
+            # Hit Test (기존 점 선택)
+            snap_threshold = 0.3
+            for p_idx, path_data in enumerate(self.paths):
+                for pt_idx, pt in enumerate(path_data['points']):
+                    if math.hypot(pt[0]-wx, pt[1]-wy) < snap_threshold:
+                        self.dragging_point = (p_idx, pt_idx)
+                        return
+
+            # 새 점 추가
+            self.paths[self.current_path_idx]['points'].append((wx, wy))
+            self.update()
+            self.pointsChanged.emit()
+            
+        elif self.view_mode == '3D':
+            self.last_mouse_pos = event.pos()
+
+    def mouseMoveEvent(self, event):
+        """마우스 드래그: 2D 점 이동 또는 3D 카메라 회전"""
+        if self.view_mode == '2D' and self.dragging_point:
+            wx, wy = self._screen_to_world(event.x(), event.y())
+            p_idx, pt_idx = self.dragging_point
+            self.paths[p_idx]['points'][pt_idx] = (wx, wy)
+            self.update()
+            self.pointsChanged.emit()
+            
+        elif self.view_mode == '3D' and self.last_mouse_pos:
+            dx = event.x() - self.last_mouse_pos.x()
+            dy = event.y() - self.last_mouse_pos.y()
+            
+            self.cam_theta += dx * 0.5
+            self.cam_phi -= dy * 0.5
+            self.cam_phi = max(0.1, min(179.9, self.cam_phi)) # 짐벌락 방지
+            
+            self.last_mouse_pos = event.pos()
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        """드래그 종료"""
+        self.dragging_point = None
+        self.last_mouse_pos = None
+
+    def wheelEvent(self, event):
+        """마우스 휠: 3D 줌 인/아웃"""
+        if self.view_mode == '3D':
+            delta = event.angleDelta().y()
+            self.cam_radius -= (1.0 if delta > 0 else -1.0)
+            self.cam_radius = max(5.0, min(100.0, self.cam_radius))
+            self.update()
+
+    def _screen_to_world(self, sx, sy):
+        """화면 좌표(px)를 2D 월드 좌표로 변환"""
+        gl_y = self.height() - sy
+        wx = self.ortho_left + (sx / self.width()) * (self.ortho_right - self.ortho_left)
+        wy = self.ortho_bottom + (gl_y / self.height()) * (self.ortho_top - self.ortho_bottom)
+        return wx, wy
+
+    def reset_view(self):
+        """카메라 뷰 초기화"""
+        self.cam_radius = 20.0
+        self.cam_theta = 45.0
+        self.cam_phi = 45.0
+        self.update()
+
+    # =========================================================================
+    # 모델 생성 로직 (Model Generation Logic)
+    # =========================================================================
+
+    def generate_model(self):
+        """현재 모드(SOR/Sweep)에 따라 3D 모델 데이터 생성"""
         try:
             self.sor_vertices = []
             self.sor_normals = []
             self.sor_faces = []
+
+            if self.modeling_mode == 0:
+                self._generate_sor()
+            else:
+                self._generate_sweep()
             
-            # 회전 각도 계산
-            angle_step = 360.0 / self.num_slices
+            self.calculate_normals()
             
-            # 현재까지 생성된 정점의 개수 (인덱스 오프셋용)
-            vertex_offset = 0
-
-            for path_data in self.paths:
-                path = path_data['points']
-                is_closed = path_data['closed']
-                
-                if len(path) < 2:
-                    continue
-
-                # --- 1. 정점 생성 (Vertices Generation) ---
-                # 현재 경로(path)에 대한 정점 생성
-                current_path_vertices_count = 0
-                for i in range(self.num_slices):
-                    theta = math.radians(i * angle_step)
-                    cos_theta = math.cos(theta)
-                    sin_theta = math.sin(theta)
-
-                    for p in path:
-                        x, y = p
-                        if self.rotation_axis == 'Y':
-                            nx, ny, nz = x * cos_theta, y, -x * sin_theta
-                        else: # 'X'
-                            nx, ny, nz = x, y * cos_theta, y * sin_theta
-                        
-                        self.sor_vertices.append((nx, ny, nz))
-                        
-                        # 법선 벡터 계산 (중심축에서 바깥쪽으로 향하는 벡터)
-                        # 간단하게 (nx, ny, nz) 자체가 원점(또는 축)에서의 방향이므로 정규화하여 사용
-                        # Y축 회전일 경우 (nx, 0, nz)가 법선 방향 (수평)
-                        # X축 회전일 경우 (0, ny, nz)가 법선 방향
-                        length = math.sqrt(nx*nx + ny*ny + nz*nz)
-                        if length > 0:
-                            if self.rotation_axis == 'Y':
-                                # Y축 회전체: 법선은 XZ 평면상에서 바깥을 향함 + Y성분은 곡선의 기울기에 따라 달라짐
-                                # 하지만 여기서는 간단히 구형/원통형 근사로 중심에서 뻗어나가는 방향 사용
-                                # 좀 더 정확히 하려면 곡선의 접선 벡터와 회전 방향 벡터의 외적을 구해야 함.
-                                # 일단은 간단한 쉐이딩을 위해 정점 위치 자체를 법선으로 사용 (구체 등에서는 정확함)
-                                self.sor_normals.append((nx/length, ny/length, nz/length))
-                            else:
-                                self.sor_normals.append((nx/length, ny/length, nz/length))
-                        else:
-                            self.sor_normals.append((0, 1, 0)) # 기본값
-
-                        current_path_vertices_count += 1
-
-                # --- 2. 면 생성 (Faces Generation) ---
-                num_points_in_path = len(path)
-                
-                # 연결해야 할 세그먼트 수: 닫힌 도형이면 점 개수만큼, 열린 도형이면 점 개수 - 1
-                num_segments = num_points_in_path if is_closed else num_points_in_path - 1
-                
-                for i in range(self.num_slices):
-                    for j in range(num_segments):
-                        # 현재 단면(i)의 점 인덱스 (전체 정점 리스트 기준)
-                        base_idx = vertex_offset
-                        
-                        p1 = base_idx + i * num_points_in_path + j
-                        # j+1이 마지막 점을 넘어가면 0번 점으로 연결 (닫힌 도형의 경우)
-                        p2_local_idx = (j + 1) % num_points_in_path
-                        p2 = base_idx + i * num_points_in_path + p2_local_idx
-                        
-                        # 다음 단면(next_i)의 점 인덱스
-                        next_i = (i + 1) % self.num_slices
-                        p3 = base_idx + next_i * num_points_in_path + p2_local_idx
-                        p4 = base_idx + next_i * num_points_in_path + j
-
-                        self.sor_faces.append((p1, p4, p3, p2))
-                
-                # 다음 경로를 위해 정점 오프셋 업데이트
-                vertex_offset += current_path_vertices_count
-            
-            self.update()
         except Exception as e:
-            print(f"generate_sor_model Error: {e}")
+            print(f"generate_model Error: {e}")
             import traceback
             traceback.print_exc()
 
-    def save_model(self, file_path):
-        """
-        현재 생성된 SOR 모델과 설정을 지정된 경로의 .dat 파일로 저장합니다.
-        형식 v5 (Multi-path + Closed state + Render Settings):
-        <단면 개수>
-        <회전축 (0:X, 1:Y)>
-        <렌더링 모드 (0~3)>
-        <모델 색상 R G B>
-        <경로 개수>
-        <경로 0 점 개수>
-        <경로 0 닫힘 여부 (0:Open, 1:Closed)>
-        x y
-        ...
-        <3D 정점 개수>
-        x y z
-        ...
-        <면 개수>
-        <한 면의 점 개수> v1 v2 v3 ...
-        ...
-        """
-        if not self.sor_vertices:
-            return
+    def calculate_normals(self):
+        """정점 법선 벡터 계산 (Gouraud Shading용)"""
+        try:
+            self.sor_normals = [(0.0, 0.0, 0.0) for _ in range(len(self.sor_vertices))]
+            
+            # Face Normal 계산 및 정점에 누적
+            for face in self.sor_faces:
+                if len(face) < 3: continue
+                v1 = self.sor_vertices[face[0]]
+                v2 = self.sor_vertices[face[1]]
+                v3 = self.sor_vertices[face[2]]
+                
+                # Cross Product
+                ux, uy, uz = v2[0]-v1[0], v2[1]-v1[1], v2[2]-v1[2]
+                vx, vy, vz = v3[0]-v1[0], v3[1]-v1[1], v3[2]-v1[2]
+                nx, ny, nz = uy*vz - uz*vy, uz*vx - ux*vz, ux*vy - uy*vx
+                
+                for idx in face:
+                    ox, oy, oz = self.sor_normals[idx]
+                    self.sor_normals[idx] = (ox + nx, oy + ny, oz + nz)
+            
+            # Normalize
+            for i in range(len(self.sor_normals)):
+                nx, ny, nz = self.sor_normals[i]
+                length = math.sqrt(nx*nx + ny*ny + nz*nz)
+                if length > 0:
+                    self.sor_normals[i] = (nx/length, ny/length, nz/length)
+                    
+        except Exception as e:
+            print(f"calculate_normals Error: {e}")
 
+    def _generate_sor(self):
+        """SOR (Surface of Revolution) 모델 생성 로직"""
+        angle_step = 360.0 / self.num_slices
+        vertex_offset = 0
+
+        for path_data in self.paths:
+            path = path_data['points']
+            is_closed = path_data['closed']
+            if len(path) < 2: continue
+
+            # 1. 정점 생성 (회전)
+            current_path_v_count = 0
+            for i in range(self.num_slices):
+                theta = math.radians(i * angle_step)
+                cos_t, sin_t = math.cos(theta), math.sin(theta)
+
+                for x, y in path:
+                    if self.rotation_axis == 'Y':
+                        self.sor_vertices.append((x * cos_t, y, -x * sin_t))
+                    else:
+                        self.sor_vertices.append((x, y * cos_t, y * sin_t))
+                    current_path_v_count += 1
+
+            # 2. 면 생성 (Quad Strip)
+            num_pts = len(path)
+            num_segs = num_pts if is_closed else num_pts - 1
+            
+            for i in range(self.num_slices):
+                next_i = (i + 1) % self.num_slices
+                for j in range(num_segs):
+                    base = vertex_offset
+                    p1 = base + i * num_pts + j
+                    p2 = base + i * num_pts + ((j + 1) % num_pts)
+                    p3 = base + next_i * num_pts + ((j + 1) % num_pts)
+                    p4 = base + next_i * num_pts + j
+                    self.sor_faces.append([p1, p4, p3, p2])
+            
+            vertex_offset += current_path_v_count
+
+    def _generate_sweep(self):
+        """Sweep Surface 모델 생성 로직 (Extrusion + Twist + Caps)"""
+        steps = 30
+        
+        for path_data in self.paths:
+            path = path_data['points']
+            is_closed = path_data['closed']
+            if len(path) < 2: continue
+            
+            start_v_idx = len(self.sor_vertices)
+            
+            # 1. 정점 생성 (Extrusion & Twist)
+            for k in range(steps + 1):
+                t = k / steps
+                z = (t - 0.5) * self.sweep_length
+                angle = math.radians(t * self.sweep_twist)
+                cos_a, sin_a = math.cos(angle), math.sin(angle)
+                
+                for x, y in path:
+                    rx = x * cos_a - y * sin_a
+                    ry = x * sin_a + y * cos_a
+                    self.sor_vertices.append((rx, ry, z))
+            
+            # 2. 옆면 생성
+            num_pts = len(path)
+            for k in range(steps):
+                for i in range(num_pts - 1):
+                    p1 = start_v_idx + k * num_pts + i
+                    p2 = start_v_idx + k * num_pts + (i + 1)
+                    p3 = start_v_idx + (k + 1) * num_pts + (i + 1)
+                    p4 = start_v_idx + (k + 1) * num_pts + i
+                    self.sor_faces.append([p1, p2, p3, p4])
+                    
+                if is_closed: # 닫힌 프로파일 연결
+                    p1 = start_v_idx + k * num_pts + (num_pts - 1)
+                    p2 = start_v_idx + k * num_pts + 0
+                    p3 = start_v_idx + (k + 1) * num_pts + 0
+                    p4 = start_v_idx + (k + 1) * num_pts + (num_pts - 1)
+                    self.sor_faces.append([p1, p2, p3, p4])
+
+            # 3. 캡(뚜껑) 생성
+            if self.sweep_caps and len(path) > 2:
+                # 중심점 계산
+                cx = sum(p[0] for p in path) / len(path)
+                cy = sum(p[1] for p in path) / len(path)
+                
+                # Start Cap (Z = -Length/2)
+                c_idx = len(self.sor_vertices)
+                self.sor_vertices.append((cx, cy, -0.5 * self.sweep_length))
+                
+                first_layer = start_v_idx
+                for i in range(num_pts):
+                    curr = first_layer + i
+                    next_p = first_layer + ((i + 1) % num_pts)
+                    if not is_closed and i == num_pts - 1: break
+                    self.sor_faces.append([c_idx, next_p, curr]) # 역순 (Normal Out)
+
+                # End Cap (Z = +Length/2)
+                c_idx = len(self.sor_vertices)
+                end_angle = math.radians(self.sweep_twist)
+                rcx = cx * math.cos(end_angle) - cy * math.sin(end_angle)
+                rcy = cx * math.sin(end_angle) + cy * math.cos(end_angle)
+                self.sor_vertices.append((rcx, rcy, 0.5 * self.sweep_length))
+                
+                last_layer = start_v_idx + steps * num_pts
+                for i in range(num_pts):
+                    curr = last_layer + i
+                    next_p = last_layer + ((i + 1) % num_pts)
+                    if not is_closed and i == num_pts - 1: break
+                    self.sor_faces.append([c_idx, curr, next_p]) # 정순
+
+    # =========================================================================
+    # 파일 입출력 (File I/O)
+    # =========================================================================
+
+    def save_model(self, file_path):
+        """모델 데이터를 .dat 파일(v6)로 저장"""
+        if not self.sor_vertices: return
         try:
             with open(file_path, 'w') as f:
-                # 1. 설정 저장
-                f.write(f"{self.num_slices}\n")
-                f.write(f"{1 if self.rotation_axis == 'Y' else 0}\n") # Y=1, X=0
+                # Header
+                f.write(f"v6 {self.num_slices} {self.rotation_axis} {self.render_mode} "
+                        f"{self.model_color[0]:.6f} {self.model_color[1]:.6f} {self.model_color[2]:.6f} "
+                        f"{self.modeling_mode} {self.sweep_length:.6f} {self.sweep_twist:.6f} {1 if self.sweep_caps else 0}\n")
                 
-                # v5 추가: 렌더링 모드 및 색상
-                f.write(f"{self.render_mode}\n")
-                f.write(f"{self.model_color[0]:.6f} {self.model_color[1]:.6f} {self.model_color[2]:.6f}\n")
-                
-                # 2. 2D 경로 데이터 저장
-                # 빈 경로는 저장하지 않음
+                # Paths
                 valid_paths = [p for p in self.paths if p['points']]
                 f.write(f"{len(valid_paths)}\n")
-                
-                for path_data in valid_paths:
-                    points = path_data['points']
-                    is_closed = 1 if path_data['closed'] else 0
-                    
-                    f.write(f"{len(points)}\n")
-                    f.write(f"{is_closed}\n") # 닫힘 여부 저장
-                    
-                    for p in points:
+                for p_data in valid_paths:
+                    f.write(f"{len(p_data['points'])}\n")
+                    f.write(f"{1 if p_data['closed'] else 0}\n")
+                    for p in p_data['points']:
                         f.write(f"{p[0]:.6f} {p[1]:.6f}\n")
-
-                # 3. 3D 정점 데이터 저장
+                
+                # Vertices
                 f.write(f"{len(self.sor_vertices)}\n")
                 for v in self.sor_vertices:
                     f.write(f"{v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
                 
-                # 4. 면 데이터 저장
+                # Faces
                 f.write(f"{len(self.sor_faces)}\n")
                 for face in self.sor_faces:
-                    f.write(f"4 {face[0]} {face[1]} {face[2]} {face[3]}\n")
-            print(f"모델 저장 완료: {file_path}")
+                    f.write(f"{len(face)} " + " ".join(map(str, face)) + "\n")
+                    
+            print(f"저장 완료: {file_path}")
         except Exception as e:
-            print(f"모델 저장 실패: {e}")
+            print(f"저장 실패: {e}")
 
     def load_model(self, file_path):
-        """
-        .dat 파일에서 설정, 2D 경로, 3D 모델 데이터를 모두 읽어와 복원합니다.
-        """
+        """모델 데이터를 .dat 파일에서 로드"""
         try:
             with open(file_path, 'r') as f:
                 lines = f.readlines()
-                
                 idx = 0
                 
-                # 1. 설정 읽기
-                self.num_slices = int(lines[idx].strip())
-                idx += 1
-                
-                axis_val = int(lines[idx].strip())
-                self.rotation_axis = 'Y' if axis_val == 1 else 'X'
-                idx += 1
-                
-                # v5 추가: 렌더링 모드 및 색상 읽기 (하위 호환성 처리)
-                # 다음 줄이 렌더링 모드(0~3)인지, 아니면 바로 경로 개수인지 확인해야 함.
-                # v4 이하는 바로 경로 개수(정수)가 나옴.
-                # 하지만 경로 개수도 정수이고 렌더링 모드도 정수라 구분이 모호할 수 있음.
-                # 다행히 v4까지는 회전축 다음이 바로 경로 개수였음.
-                # v5는 회전축 다음에 렌더링 모드, 그 다음에 색상(실수 3개)이 나옴.
-                # 따라서 다음 줄을 읽고, 그 다음 줄이 실수 3개인지 확인하면 v5인지 알 수 있음.
-                
-                next_line = lines[idx].strip()
-                next_next_line = lines[idx+1].strip() if idx+1 < len(lines) else ""
-                
-                is_v5 = False
-                try:
-                    parts = next_next_line.split()
-                    if len(parts) == 3 and all('.' in p for p in parts):
-                        is_v5 = True
-                except:
-                    pass
-                    
-                if is_v5:
-                    self.render_mode = int(next_line)
-                    idx += 1
-                    color_parts = list(map(float, lines[idx].strip().split()))
-                    self.model_color = tuple(color_parts)
-                    idx += 1
-                    
-                    # 그 다음이 경로 개수
-                    num_paths = int(lines[idx].strip())
+                # Header Parsing
+                parts = lines[idx].strip().split()
+                if parts[0] == 'v6':
+                    self.num_slices = int(parts[1])
+                    self.rotation_axis = parts[2]
+                    self.render_mode = int(parts[3])
+                    self.model_color = (float(parts[4]), float(parts[5]), float(parts[6]))
+                    self.modeling_mode = int(parts[7])
+                    self.sweep_length = float(parts[8])
+                    self.sweep_twist = float(parts[9])
+                    self.sweep_caps = bool(int(parts[10])) if len(parts) >= 11 else False
                     idx += 1
                 else:
-                    # v4 이하: 렌더링 모드/색상 없음 (기본값 사용)
-                    self.render_mode = 1 # Solid
-                    self.model_color = (0.0, 0.8, 0.8)
-                    num_paths = int(next_line)
+                    # 구버전 호환성 로직은 생략하거나 필요시 추가
                     idx += 1
                 
+                # Paths Parsing
+                num_paths = int(lines[idx].strip()); idx += 1
                 self.paths = []
                 for _ in range(num_paths):
-                    num_points = int(lines[idx].strip())
-                    idx += 1
-                    
-                    # v4 포맷: 닫힘 여부 확인 (하위 호환성 고려)
+                    num_pts = int(lines[idx].strip()); idx += 1
                     is_closed = False
+                    # Check Closed Flag
                     try:
-                        line = lines[idx].strip()
-                        parts = line.split()
-                        if len(parts) == 1 and parts[0] in ['0', '1']:
-                            is_closed = True if int(parts[0]) == 1 else False
+                        p = lines[idx].strip().split()
+                        if len(p) == 1 and p[0] in ['0', '1']:
+                            is_closed = bool(int(p[0]))
                             idx += 1
-                        else:
-                            # v3 파일 (closed flag 없음)
-                            pass
-                    except:
-                        pass
-
-                    path_points = []
-                    for _ in range(num_points):
-                        coords = list(map(float, lines[idx].strip().split()))
-                        path_points.append(tuple(coords))
-                        idx += 1
+                    except: pass
                     
-                    self.paths.append({'points': path_points, 'closed': is_closed})
+                    pts = []
+                    for _ in range(num_pts):
+                        pts.append(tuple(map(float, lines[idx].strip().split())))
+                        idx += 1
+                    self.paths.append({'points': pts, 'closed': is_closed})
                 
-                # 마지막에 빈 경로 하나 추가 (편집 편의성)
                 self.paths.append({'points': [], 'closed': False})
                 self.current_path_idx = len(self.paths) - 1
                 
-                # 3. 3D 정점 데이터 읽기
-                num_vertices = int(lines[idx].strip())
-                idx += 1
-                
-                new_vertices = []
-                for _ in range(num_vertices):
-                    coords = list(map(float, lines[idx].strip().split()))
-                    new_vertices.append(tuple(coords))
+                # Vertices Parsing
+                num_v = int(lines[idx].strip()); idx += 1
+                self.sor_vertices = []
+                for _ in range(num_v):
+                    self.sor_vertices.append(tuple(map(float, lines[idx].strip().split())))
                     idx += 1
-                
-                # 4. 면 데이터 읽기
-                num_faces = int(lines[idx].strip())
-                idx += 1
-                
-                new_faces = []
-                for _ in range(num_faces):
-                    data = list(map(int, lines[idx].strip().split()))
-                    new_faces.append(tuple(data[1:]))
+                    
+                # Faces Parsing
+                num_f = int(lines[idx].strip()); idx += 1
+                self.sor_faces = []
+                for _ in range(num_f):
+                    parts = list(map(int, lines[idx].strip().split()))
+                    self.sor_faces.append(parts[1:])
                     idx += 1
+                    
+                self.calculate_normals() # 법선 재계산
                 
-                # 데이터 교체
-                self.sor_vertices = new_vertices
-                self.sor_faces = new_faces
-                
-                # UI 및 화면 갱신 알림
+                self.update()
                 self.pointsChanged.emit()
                 
-                # 뷰 모드를 3D로 전환
                 if self.view_mode == '2D':
                     self.view_mode = '3D'
                     self.viewModeChanged.emit('3D')
-                
-                self.update()
-                print(f"모델 로드 완료: {file_path}")
-                
+                    
+            print(f"로드 완료: {file_path}")
         except Exception as e:
-            print(f"모델 로드 실패: {e}")
+            print(f"로드 실패: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # =========================================================================
+    # 설정자 및 UI 상호작용 (Setters & UI Interaction)
+    # =========================================================================
+
+    def set_rotation_axis(self, axis):
+        self.rotation_axis = axis
+        if self.view_mode == '3D': self.generate_model()
+        self.update()
+
+    def set_num_slices(self, slices):
+        self.num_slices = slices
+        if self.view_mode == '3D': self.generate_model()
+        self.update()
+
+    def set_modeling_mode(self, mode):
+        self.modeling_mode = mode
+        if self.view_mode == '3D': self.generate_model()
+        self.update()
+
+    def set_sweep_length(self, length):
+        self.sweep_length = length
+        if self.view_mode == '3D': self.generate_model()
+        self.update()
+
+    def set_sweep_twist(self, angle):
+        self.sweep_twist = angle
+        if self.view_mode == '3D': self.generate_model()
+        self.update()
+
+    def set_sweep_caps(self, enabled):
+        self.sweep_caps = enabled
+        if self.view_mode == '3D': self.generate_model()
+        self.update()
+
+    def set_view_mode(self, mode):
+        if self.view_mode != mode:
+            self.view_mode = mode
+            if mode == '3D' and any(p['points'] for p in self.paths):
+                self.generate_model()
+            self.update()
+            self.viewModeChanged.emit(mode)
 
     def clear_points(self):
-        """모든 경로와 모델 데이터를 초기화합니다."""
         self.paths = [{'points': [], 'closed': False}]
         self.current_path_idx = 0
-        self.dragging_point = None
         self.sor_vertices = []
         self.sor_faces = []
         self.update()
         self.pointsChanged.emit()
 
     def delete_point(self, path_idx, point_idx):
-        """지정된 경로의 특정 점을 삭제합니다."""
         if 0 <= path_idx < len(self.paths):
-            path_data = self.paths[path_idx]
-            path_points = path_data['points']
-            if 0 <= point_idx < len(path_points):
-                del path_points[point_idx]
-                
-                # 점이 2개 미만이면 닫힘 상태 해제 (최소한 선분은 되어야 하므로)
-                if len(path_points) < 2:
-                    path_data['closed'] = False
-                    
+            points = self.paths[path_idx]['points']
+            if 0 <= point_idx < len(points):
+                del points[point_idx]
+                if not points and len(self.paths) > 1:
+                    del self.paths[path_idx]
+                    self.current_path_idx = max(0, len(self.paths) - 1)
                 self.update()
                 self.pointsChanged.emit()
 
     def close_current_path(self):
-        """현재 편집 중인 경로를 닫힌 도형으로 만들고, 새로운 경로를 시작합니다."""
-        current_path = self.paths[self.current_path_idx]
-        if len(current_path['points']) < 2:
-            # 점이 2개 미만이면 닫을 수 없음 (최소한 선분은 되어야 함)
-            return
-            
-        current_path['closed'] = True
-        
-        # 새로운 경로 시작
-        self.paths.append({'points': [], 'closed': False})
-        self.current_path_idx += 1
-        
-        self.update()
-        self.pointsChanged.emit()
-
-    # === Public Setters / Slots ===
-
-    def set_rotation_axis(self, axis):
-        """UI로부터 호출되어 회전 축('X' 또는 'Y')을 설정합니다."""
-        if axis in ['X', 'Y'] and self.rotation_axis != axis:
-            self.rotation_axis = axis
-            # 축이 변경되면 3D 모델을 다시 생성해야 할 수 있으므로 업데이트
-            if self.view_mode == '3D':
-                self.generate_sor_model()
+        if self.paths[self.current_path_idx]['points']:
+            self.paths[self.current_path_idx]['closed'] = True
+            self.paths.append({'points': [], 'closed': False})
+            self.current_path_idx += 1
             self.update()
-
-    def set_num_slices(self, value):
-        """UI로부터 호출되어 단면 개수를 설정합니다."""
-        if self.num_slices != value:
-            self.num_slices = value
-            # 단면 개수가 변경되면 3D 모델을 다시 생성해야 할 수 있으므로 업데이트
-            if self.view_mode == '3D':
-                self.generate_sor_model()
-            self.update()
-
-    def set_view_mode(self, mode):
-        """UI로부터 호출되어 뷰 모드('2D' 또는 '3D')를 변경합니다."""
-        if self.view_mode != mode:
-            self.view_mode = mode
-            
-            # 3D 모드로 전환될 때, 점 데이터가 있으면 SOR 모델 생성을 시도합니다.
-            # self.paths에 유효한 경로가 있는지 확인
-            has_points = any(len(p['points']) > 1 for p in self.paths)
-            if self.view_mode == '3D' and has_points:
-                self.generate_sor_model()
-
-            self.update() # 화면 갱신
-            self.viewModeChanged.emit(self.view_mode) # 모드 변경 시그널 발생
+            self.pointsChanged.emit()

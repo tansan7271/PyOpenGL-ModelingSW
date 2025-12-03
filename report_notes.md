@@ -102,6 +102,29 @@
   - $V_{k, i}$: $k$번째 단면의 $i$번째 점
   - **Face Indices:** $[V_{k, i}, V_{k, i+1}, V_{k+1, i+1}, V_{k+1, i}]$
 
+### 3.2. 스윕 곡면 생성 (Sweep Surface Generation)
+
+2D 프로파일 점 $P(x, y)$를 Z축 방향으로 밀어내면서(Extrude) 동시에 회전(Twist)시켜 3D 형상을 생성합니다.
+
+- **파라미터:**
+
+  - $L$: 길이 (`sweep_length`)
+  - $T_{total}$: 총 비틀림 각도 (`sweep_twist`)
+  - $S$: 단계 수 (Steps, 고정값 30)
+
+- **변환 공식:**
+  각 단계 $k$ ($0 \le k \le S$)에서의 정점 위치 계산:
+  $$ t = k / S $$
+  $$ z = (t - 0.5) \times L $$
+  $$ \theta = t \times T\_{total} $$
+  $$ x' = x \cos\theta - y \sin\theta $$
+  $$ y' = x \sin\theta + y \cos\theta $$
+  $$ z' = z $$
+
+- **캡(Caps) 생성:**
+  - **Start Cap:** $z = -L/2$ 위치에 중심점을 추가하고, 첫 번째 레이어의 점들과 연결 (역순).
+  - **End Cap:** $z = +L/2$ 위치에 중심점을 추가하고, 마지막 레이어의 점들과 연결 (정순).
+
 ### 3.2. 법선 벡터 계산 (Normal Calculation)
 
 조명 효과(Shading)를 위해 각 면 또는 정점의 수직 벡터(Normal Vector)를 계산합니다.
@@ -139,7 +162,15 @@
 ]
 ```
 
-### 4.2. 3D 메쉬 데이터
+### 4.2. 모델링 설정 데이터 (v6 Format)
+
+- **Modeling Mode**: 0 (SOR) / 1 (Sweep)
+- **Sweep Parameters**:
+  - `sweep_length`: 길이 (float)
+  - `sweep_twist`: 비틀림 각도 (float)
+  - `sweep_caps`: 캡 여부 (bool)
+
+### 4.3. 3D 메쉬 데이터
 
 OpenGL 렌더링에 최적화된 플랫 리스트 구조입니다.
 
