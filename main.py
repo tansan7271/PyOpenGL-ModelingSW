@@ -33,7 +33,7 @@ class MainContainer(QMainWindow):
         self.sidebar = QWidget()
         self.sidebar.setFixedWidth(52)
         sidebar_layout = QVBoxLayout(self.sidebar)
-        sidebar_layout.setContentsMargins(5, 5, 5, 5)
+        sidebar_layout.setContentsMargins(5, 25, 5, 5)
         sidebar_layout.setSpacing(0)
 
         # Sidebar Menu Items
@@ -76,9 +76,9 @@ class MainContainer(QMainWindow):
         
         # Connect Signals
         self.menu_list.currentRowChanged.connect(self.stack.setCurrentIndex)
-        
-        # Default Selection
-        self.menu_list.setCurrentRow(0)
+        # 초기 화면 설정 (0: Modeler, 1: Maze Game)
+        self.stack.setCurrentIndex(1)
+        self.menu_list.setCurrentRow(1)
 
         # 초기 스타일 및 아이콘 적용
         self._update_styles()

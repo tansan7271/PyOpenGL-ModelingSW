@@ -221,3 +221,10 @@ OS의 라이트/다크 모드 전환을 실시간으로 감지하고 애플리�
   4. **Composition Mode**: `QPainter.CompositionMode_SourceIn`을 설정합니다. 이 모드는 소스(색상)를 그릴 때 목적지(원본 아이콘)의 불투명한 부분에만 그려지도록 마스킹합니다.
   5. `fillRect`로 원하는 색상(테마에 따른 흰색 또는 회색)을 칠하여 아이콘의 형태만 남기고 색상을 변경합니다.
 - **State Management:** `QIcon` 객체 생성 시 `Normal` 상태와 `Selected` 상태에 대해 각각 다른 색상으로 틴팅된 픽스맵을 할당하여, 사용자가 아이콘을 선택했을 때의 시각적 피드백을 명확히 합니다.
+
+### 6.3. 미로 게임 UI 개선 (Maze Game UI Refinement)
+
+- **QMainWindow 상속 전환**: `MiroWindow`의 상속 클래스를 `QWidget`에서 `QMainWindow`로 변경하여 `QToolBar` 및 표준 윈도우 기능을 올바르게 지원하도록 구조를 개선했습니다.
+- **QToolBar 통합**: 기존의 `QMenuBar`를 `QToolBar`로 교체하여 3D 모델러와 동일한 심미적 일관성을 확보했습니다. 'View Mode'는 `InstantPopup` 모드의 `QToolButton`을 사용하여 드롭다운 메뉴로, 'Minimap'은 표준 `QAction`을 사용하여 토글 버튼으로 구현했습니다.
+- **레이아웃 관리**: `setCentralWidget`을 사용하여 메인 레이아웃 컨테이너를 설정함으로써, 기존의 중첩된 레이아웃 구조를 단순화하고 표준화했습니다.
+- **동적 UI 요소**: 설정 항목을 체계적으로 정리하기 위해 중첩된 `QGroupBox`를 구현하고, 툴바에 '타이틀로 복귀' 기능을 직접 추가하여 사용자 편의성을 높였습니다.
