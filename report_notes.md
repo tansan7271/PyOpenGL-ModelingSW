@@ -197,3 +197,27 @@ OpenGL 렌더링에 최적화된 플랫 리스트 구조입니다.
     - **Wireframe**: `glPolygonMode(..., GL_LINE)`
     - **Solid**: `glDisable(GL_LIGHTING)` + `glColor`
     - **Flat/Gouraud**: `glEnable(GL_LIGHTING)` + `glShadeModel(GL_FLAT/SMOOTH)` + `glNormal`
+
+---
+
+## 6. UI/UX 고도화 기술 (Advanced UI/UX Techniques)
+
+### 6.1. 동적 테마 시스템 (Dynamic Theme System)
+
+OS의 라이트/다크 모드 전환을 실시간으로 감지하고 애플리케이션 스타일을 즉시 반영하는 시스템입니다.
+
+- **Event Handling:** `changeEvent(QEvent)` 메서드를 오버라이드하여 `QEvent.ApplicationPaletteChange` 이벤트를 감지합니다.
+- **Theme Detection:** `QApplication.palette().color(QPalette.Window).lightness()` 값이 128 미만이면 다크 모드로 판단합니다.
+- **Adaptive Styling:** 감지된 모드에 따라 UI 컴포넌트(사이드바, 리스트 아이템)의 배경색, 경계선, 텍스트 색상 변수를 런타임에 교체합니다.
+
+### 6.2. 프로그래머틱 아이콘 틴팅 (Programmatic Icon Tinting)
+
+별도의 아이콘 리소스(흰색/검은색)를 두지 않고, 코드로 아이콘 색상을 실시간 변경하여 리소스 효율성과 유연성을 확보했습니다.
+
+- **Algorithm:**
+  1. 원본 아이콘 이미지(`QPixmap`)를 로드합니다.
+  2. 투명한 `QPixmap` 버퍼를 생성합니다.
+  3. `QPainter`로 원본 이미지를 그립니다.
+  4. **Composition Mode**: `QPainter.CompositionMode_SourceIn`을 설정합니다. 이 모드는 소스(색상)를 그릴 때 목적지(원본 아이콘)의 불투명한 부분에만 그려지도록 마스킹합니다.
+  5. `fillRect`로 원하는 색상(테마에 따른 흰색 또는 회색)을 칠하여 아이콘의 형태만 남기고 색상을 변경합니다.
+- **State Management:** `QIcon` 객체 생성 시 `Normal` 상태와 `Selected` 상태에 대해 각각 다른 색상으로 틴팅된 픽스맵을 할당하여, 사용자가 아이콘을 선택했을 때의 시각적 피드백을 명확히 합니다.

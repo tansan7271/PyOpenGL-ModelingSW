@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (QMainWindow, QToolBar, QAction, QDockWidget, QWidge
                              QGroupBox, QRadioButton, QScrollArea, QSizePolicy, QFileDialog, QMessageBox,
                              QComboBox, QColorDialog, QCheckBox, QSlider)
 from PyQt5.QtCore import Qt
-from opengl_haeksim import OpenGLWidget
+from modeler_opengl import OpenGLWidget
 
 class MainWindow(QMainWindow):
     """
