@@ -4,17 +4,22 @@ class Maze:
     """
     무작위 깊이 우선 탐색(Randomized DFS) 알고리즘을 사용하여 미로를 생성하는 클래스.
     """
-    def __init__(self, width, height):
+    def __init__(self, width, height, wall_thickness=1.0, wall_height=1.0):
         """
         미로 객체를 초기화합니다.
 
         Args:
             width (int): 미로의 가로 크기.
             height (int): 미로의 세로 크기.
+            wall_thickness (float): 벽 두께 (0.1 ~ 1.0, 기본값 1.0).
+            wall_height (float): 벽 높이 (기본값 1.0).
         """
         # 미로의 벽과 길을 명확히 구분하기 위해 크기를 홀수로 조정합니다.
         self.width = width if width % 2 != 0 else width + 1
         self.height = height if height % 2 != 0 else height + 1
+        # 벽 두께 및 높이 설정
+        self.wall_thickness = max(0.1, min(1.0, wall_thickness))
+        self.wall_height = max(0.1, wall_height)
         # 모든 칸을 벽(1)으로 채운 그리드를 생성합니다.
         self.grid = [[1 for _ in range(self.width)] for _ in range(self.height)]
 
@@ -87,70 +92,112 @@ class Maze:
             # 벽(1)은 '█', 길(0)은 ' '로 표시합니다.
             print("".join(["██" if cell == 1 else "  " for cell in row]))
 
-    def export_to_dat(self, filename):
+    def _is_wall(self, x, y):
+        """주어진 좌표가 벽인지 확인합니다."""
+        if 0 <= x < self.width and 0 <= y < self.height:
+            return self.grid[y][x] == 1
+        return False
+
+    def export_to_dat(self, filename, wall_thickness=None, wall_height=None):
         """
         생성된 미로를 3D 모델(.dat) 파일로 내보냅니다.
-        벽을 1x1x1 큐브로 변환하여 저장합니다.
+        벽 두께와 높이를 적용하여 큐브를 생성합니다.
+        인접한 벽이 있으면 해당 방향으로 확장하여 틈이 생기지 않도록 합니다.
+
+        Args:
+            filename (str): 저장할 파일 경로.
+            wall_thickness (float): 벽 두께 (0.1~1.0, 기본값 1.0).
+            wall_height (float): 벽 높이 (기본값 1.0).
         """
         vertices = []
         faces = []
-        
+
         # 미로 스케일 및 오프셋 설정 (중앙 정렬)
-        scale = 1.0
-        height = 1.0
+        scale = 1.0  # 그리드 셀 간격 (고정)
+        thickness = wall_thickness if wall_thickness is not None else self.wall_thickness
+        height = wall_height if wall_height is not None else self.wall_height
+        thickness = max(0.1, min(1.0, thickness))  # 범위 제한
+        height = max(0.1, height)
+        inset = (scale - thickness) / 2  # 셀 내 벽 오프셋
+
         offset_x = -(self.width * scale) / 2
         offset_z = -(self.height * scale) / 2
-        
+
         vertex_count = 0
-        
+
+        def add_box(x0, x1, z0, z1):
+            """박스(큐브) 하나를 vertices와 faces에 추가"""
+            nonlocal vertex_count
+            # Bottom (y=0)
+            v_bottom = [
+                (x0, 0, z0), (x1, 0, z0),
+                (x1, 0, z1), (x0, 0, z1)
+            ]
+            # Top (y=height)
+            v_top = [
+                (x0, height, z0), (x1, height, z0),
+                (x1, height, z1), (x0, height, z1)
+            ]
+            vertices.extend(v_bottom + v_top)
+
+            base = vertex_count
+            faces.append((base+0, base+3, base+2, base+1))  # Bottom
+            faces.append((base+4, base+5, base+6, base+7))  # Top
+            faces.append((base+0, base+1, base+5, base+4))  # Front
+            faces.append((base+1, base+2, base+6, base+5))  # Right
+            faces.append((base+2, base+3, base+7, base+6))  # Back
+            faces.append((base+3, base+0, base+4, base+7))  # Left
+            vertex_count += 8
+
         for y in range(self.height):
             for x in range(self.width):
-                if self.grid[y][x] == 1: # 벽인 경우 큐브 생성
-                    # 기준 좌표
+                if self.grid[y][x] == 1:  # 벽인 경우
+                    # 기준 좌표 (셀의 왼쪽 하단)
                     bx = x * scale + offset_x
                     bz = y * scale + offset_z
-                    
-                    # 큐브의 8개 정점 생성
-                    # Bottom (y=0)
-                    v_bottom = [
-                        (bx, 0, bz), (bx + scale, 0, bz), 
-                        (bx + scale, 0, bz + scale), (bx, 0, bz + scale)
-                    ]
-                    # Top (y=height)
-                    v_top = [
-                        (bx, height, bz), (bx + scale, height, bz), 
-                        (bx + scale, height, bz + scale), (bx, height, bz + scale)
-                    ]
-                    
-                    vertices.extend(v_bottom + v_top)
-                    
-                    # 큐브의 6개 면 생성 (CCW Winding)
-                    # 각 면은 4개의 정점 인덱스로 구성됨
-                    base = vertex_count
-                    
-                    # Bottom (0, 3, 2, 1)
-                    faces.append((base+0, base+3, base+2, base+1))
-                    # Top (4, 5, 6, 7)
-                    faces.append((base+4, base+5, base+6, base+7))
-                    # Front (0, 1, 5, 4)
-                    faces.append((base+0, base+1, base+5, base+4))
-                    # Right (1, 2, 6, 5)
-                    faces.append((base+1, base+2, base+6, base+5))
-                    # Back (2, 3, 7, 6)
-                    faces.append((base+2, base+3, base+7, base+6))
-                    # Left (3, 0, 4, 7)
-                    faces.append((base+3, base+0, base+4, base+7))
-                    
-                    vertex_count += 8
+
+                    # 중앙 박스 좌표
+                    cx0 = bx + inset
+                    cx1 = bx + inset + thickness
+                    cz0 = bz + inset
+                    cz1 = bz + inset + thickness
+
+                    # 인접 벽 확인
+                    left = self._is_wall(x - 1, y)
+                    right = self._is_wall(x + 1, y)
+                    up = self._is_wall(x, y - 1)
+                    down = self._is_wall(x, y + 1)
+
+                    # 수평 직선: 좌우만 연결 (상하 없음) - 하나의 박스로 병합
+                    if (left or right) and not up and not down:
+                        x0 = bx if left else cx0
+                        x1 = bx + scale if right else cx1
+                        add_box(x0, x1, cz0, cz1)
+
+                    # 수직 직선: 상하만 연결 (좌우 없음) - 하나의 박스로 병합
+                    elif (up or down) and not left and not right:
+                        z0 = bz if up else cz0
+                        z1 = bz + scale if down else cz1
+                        add_box(cx0, cx1, z0, z1)
+
+                    # 코너/T자/+자/고립: 중앙 박스 + 연결 팔 방식
+                    else:
+                        add_box(cx0, cx1, cz0, cz1)  # 중앙 박스
+                        if left:
+                            add_box(bx, cx0, cz0, cz1)
+                        if right:
+                            add_box(cx1, bx + scale, cz0, cz1)
+                        if up:
+                            add_box(cx0, cx1, bz, cz0)
+                        if down:
+                            add_box(cx0, cx1, cz1, bz + scale)
 
         try:
             with open(filename, 'w') as f:
-                # 1. 설정 (v5 포맷 호환)
-                f.write("30\n") # Slices (의미 없음)
-                f.write("1\n")  # Axis Y
-                f.write("2\n")  # Render Mode: Flat Shading
-                f.write("0.6 0.6 0.6\n") # Color: Gray
-                
+                # 1. 설정 (v6 포맷)
+                # v6 {slices} {axis} {render_mode} {r} {g} {b} {mode} {sweep_len} {twist} {caps}
+                f.write("v6 30 Y 2 0.6 0.6 0.6 0 0 0 0\n")
+
                 # 2. 경로 데이터 (0개 - SOR 생성 방지)
                 f.write("0\n")
                 
@@ -209,16 +256,25 @@ def main():
         if choice == '1':
             current_maze = create_maze()
         elif choice == '2' and current_maze:
+            # 벽 두께 입력 (선택적, 기본값 1.0)
+            thickness_input = input("벽 두께를 입력하세요 (0.1~1.0, 기본값 1.0): ").strip()
+            wall_thickness = float(thickness_input) if thickness_input else 1.0
+
+            # 벽 높이 입력 (선택적, 기본값 1.0)
+            height_input = input("벽 높이를 입력하세요 (기본값 1.0): ").strip()
+            wall_height = float(height_input) if height_input else 1.0
+
+            # 파일 이름 입력
             filename = input("저장할 파일 이름을 입력하세요 (예: maze.dat): ")
             if not filename.endswith('.dat'):
                 filename += '.dat'
-            
+
             import os
             if not os.path.exists('datasets'):
                 os.makedirs('datasets')
-                
+
             filepath = os.path.join('datasets', filename)
-            current_maze.export_to_dat(filepath)
+            current_maze.export_to_dat(filepath, wall_thickness, wall_height)
         elif choice == '3':
             print("프로그램을 종료합니다.")
             break
