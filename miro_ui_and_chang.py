@@ -57,7 +57,7 @@ class MiroWindow(QMainWindow):
         self.addToolBar(toolbar)
         
         # 0. 중단 및 타이틀 복귀 버튼
-        action_abort = QAction("Abort and Return to Title", self)
+        action_abort = QAction("Return to Title", self)
         action_abort.triggered.connect(self._return_to_title)
         toolbar.addAction(action_abort)
         

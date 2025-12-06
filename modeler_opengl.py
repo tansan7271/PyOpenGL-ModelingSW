@@ -136,12 +136,13 @@ class OpenGLWidget(QOpenGLWidget):
                 painter.setPen(QColor(255, 255, 255))
                 painter.setFont(QFont("Arial", 10))
                 
-                painter.drawText(10, 20, "Drag to Look Around")
-                painter.drawText(10, 40, "Scroll to Zoom In/Out")
+                painter.drawText(10, 30, "Drag to Look Around")
+                painter.drawText(10, 55, "Scroll to Zoom In/Out")
                 
                 painter.end()
                 
         except Exception as e:
+            
             print(f"paintGL Error: {e}")
             import traceback
             traceback.print_exc()
