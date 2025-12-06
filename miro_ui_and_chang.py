@@ -131,6 +131,8 @@ class MiroWindow(QMainWindow):
         # 2. 메인 콘텐츠 영역 (좌우 분할)
         content_layout = QHBoxLayout()
         content_layout.setAlignment(Qt.AlignCenter)
+        content_layout.setSpacing(40) # 패널 간 간격 추가
+        content_layout.setContentsMargins(50, 0, 50, 0) # 좌우 여백 추가
         
         # --- [좌측] 스토리 모드 패널 ---
         group_story = QGroupBox("Story Mode")
