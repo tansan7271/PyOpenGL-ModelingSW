@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLa
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPixmap, QFont
 from miro_opengl import MiroOpenGLWidget
+from miro_story import MiroStoryWidget
 
 class MiroWindow(QMainWindow):
     """
@@ -45,8 +46,15 @@ class MiroWindow(QMainWindow):
         self._setup_game_page()
         self.stack.addWidget(self.page_game)
         
+        # 3. 스토리 모드 화면 (Page 2)
+        self.story_widget = MiroStoryWidget()
+        self.story_widget.finished.connect(self._return_to_title)
+        self.stack.addWidget(self.story_widget)
+        
         # 초기 화면 설정
         self.stack.setCurrentIndex(0)
+
+
 
     def _create_toolbar(self):
         """툴바 설정 (뷰 모드 드롭다운, 미니맵 토글)"""
@@ -282,6 +290,12 @@ class MiroWindow(QMainWindow):
     def _start_game(self, mode):
         """게임 시작 처리"""
         print(f"Starting Game: {mode}")
+        
+        if mode == "Story Read":
+            # 스토리 모드 시작
+            self.story_widget.reset_story()
+            self.stack.setCurrentWidget(self.story_widget)
+            return
         
         config = {}
         if mode == "Custom":

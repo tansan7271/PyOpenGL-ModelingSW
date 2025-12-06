@@ -9,7 +9,7 @@ OpenGLWidget 클래스를 정의합니다. 2D 프로파일 곡선 편집, 3D SOR
 
 import math
 from PyQt5.QtWidgets import QOpenGLWidget
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QPainter, QColor, QFont
 from OpenGL.GL import *
 from OpenGL.GLU import *
@@ -133,16 +133,22 @@ class OpenGLWidget(QOpenGLWidget):
                 # QPainter는 OpenGL 렌더링이 끝난 후 호출해야 함
                 painter = QPainter(self)
                 painter.setRenderHint(QPainter.TextAntialiasing)
-                painter.setPen(QColor(255, 255, 255))
-                painter.setFont(QFont("Arial", 10))
                 
-                painter.drawText(10, 30, "Drag to Look Around")
-                painter.drawText(10, 55, "Scroll to Zoom In/Out")
+                # 스타일 설정 (Maze Game 타이틀 힌트와 유사한 스타일)
+                painter.setPen(QColor(200, 200, 200)) # 밝은 회색
+                font = QFont("Arial", 10)
+                font.setItalic(True)
+                painter.setFont(font)
+                
+                # 텍스트 배치 (우측 상단, 여백 20px)
+                # 줄바꿈(\n)을 사용하여 한 번에 그리기
+                rect = self.rect().adjusted(0, 20, -20, 0) # 상단 20px, 우측 20px 여백
+                text = "Drag to Look Around\nScroll to Zoom In/Out"
+                painter.drawText(rect, Qt.AlignTop | Qt.AlignRight, text)
                 
                 painter.end()
                 
         except Exception as e:
-            
             print(f"paintGL Error: {e}")
             import traceback
             traceback.print_exc()
