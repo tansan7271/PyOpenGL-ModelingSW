@@ -126,17 +126,9 @@ class MiroStoryWidget(QWidget):
         if os.path.exists(image_path):
             pixmap = QPixmap(image_path)
             self.lbl_image.setPixmap(pixmap)
-            # 텍스트 초기화는 AspectRatioLabel 내부에서 처리되지 않으므로 필요 시 별도 메서드 사용, 
-            # 하지만 여기서는 이미지가 있으면 텍스트가 덮어씌워짐 (QLabel 특성상)
         else:
-            # 이미지가 없을 경우 플레이스홀더 (기본 QLabel 기능 사용 불가하므로 빈 픽스맵 + 오버레이 텍스트 방식 고려, 
-            # 혹은 단순하게 텍스트 표시용 이미지를 생성하거나, 임시로 텍스트 설정)
-            # AspectRatioLabel은 setPixmap을 오버라이드했으므로 setText 사용 시 주의.
-            # 여기서는 편의상 빈 픽스맵을 설정하고 부모 클래스의 setText를 호출하지 않음.
-            # 대신 QPainter로 텍스트를 그리는 방식으로 가거나, 간단히 콘솔 로그만 남김.
-            # 사용자 요청은 '규격 정립'이므로 검은 화면 유지.
-            print(f"Image not found: {image_path}")
-            # 빈 픽스맵 생성 (1920x1440 검은색)
+            # 이미지가 없을 경우: 검은 화면 (규격 유지)
+            # print(f"Image not found: {image_path}") # 디버그 로그 제거
             empty = QPixmap(1920, 1440)
             empty.fill(QColor("#222"))
             self.lbl_image.setPixmap(empty)

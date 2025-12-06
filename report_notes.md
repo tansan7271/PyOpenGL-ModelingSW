@@ -4,62 +4,77 @@
 
 ## 1. 시스템 아키텍처 (System Architecture)
 
-본 시스템은 **MVC (Model-View-Controller)** 패턴을 변형하여 구현되었습니다.
+본 시스템은 **Main Container**가 두 개의 독립적인 서브 애플리케이션(**3D Modeler**, **Maze Game**)을 관리하는 계층적 구조로 설계되었습니다.
 
-### 1.1. 클래스 구조 (Class Structure)
+### 1.1. 전체 시스템 구조 (Global Structure)
 
-#### `MainWindow` (View & Controller)
+#### `MainContainer` (`main.py`)
 
-- **역할:** 사용자 인터페이스(UI) 관리 및 사용자 입력 처리.
-- **주요 속성 (Attributes):**
-  - `glWidget`: `OpenGLWidget` 인스턴스 (Central Widget).
-  - `toolbar`: 상단 툴바 (2D/3D 전환, 저장/불러오기).
-  - `dock_widget`: 우측 컨트롤 패널 컨테이너.
-  - `spin_slices`: 단면 개수 설정 `QSpinBox`.
-  - `radio_x/y_axis`: 회전축 선택 `QRadioButton`.
-  - `combo_render_mode`: 렌더링 모드 선택 `QComboBox`.
-  - `btn_color_picker`: 색상 변경 `QPushButton`.
-- **주요 메서드 (Methods):**
-  - `_setup_ui()`: UI 초기화 및 레이아웃 배치.
-  - `_connect_signals()`: UI 시그널과 `OpenGLWidget` 슬롯 연결.
-  - `_on_view_mode_changed(mode)`: 뷰 모드에 따라 UI 활성/비활성 상태 변경.
-  - `_update_point_list()`: `glWidget.points` 데이터를 기반으로 점 목록 UI 갱신.
+- **역할:** 최상위 윈도우(Top-level Window)로서, 사이드바 네비게이션을 통해 서브 앱 간의 전환을 관리합니다.
+- **구조:**
+  - **Sidebar:** 'Modeler'와 'Maze Game' 모드를 전환하는 아이콘 메뉴.
+  - **Content Area:** `QStackedWidget`을 사용하여 선택된 서브 앱을 표시.
+  - **Sub-Apps:**
+    1.  `ModelerWindow`: 3D 모델링 도구.
+    2.  `MiroWindow`: 미로 탐색 게임.
 
-#### `OpenGLWidget` (Model & View)
+### 1.2. 서브 앱: 3D 모델러 (Sub-App: 3D Modeler)
 
-- **역할:** 데이터 관리(Model) 및 3D 렌더링(View).
-- **주요 속성 (Attributes):**
-  - **State:** `view_mode` ('2D'/'3D'), `render_mode` (Wire/Solid/Flat/Gouraud).
-  - **Data:** `paths` (2D 프로파일), `sor_vertices` (3D 정점), `sor_faces` (3D 면).
-  - **Settings:** `num_slices`, `rotation_axis`, `model_color`.
-- **주요 메서드 (Methods):**
-  - **Lifecycle:** `initializeGL` (초기화), `resizeGL` (투영 설정), `paintGL` (렌더링 루프).
-  - **Input:** `mousePressEvent` (점 추가/선택), `mouseMoveEvent` (드래그).
-  - **Logic:** `generate_sor_model` (3D 메쉬 생성), `calculate_normals` (법선 계산).
+**MVC (Model-View-Controller)** 패턴을 적용하여 데이터와 렌더링 로직을 분리했습니다.
 
-### 1.2. 클래스 다이어그램 (Class Diagram Description)
+#### `MainWindow` (`modeler_ui_and_chang.py`) - View & Controller
 
-- `MainWindow`는 `OpenGLWidget`을 **포함(Composite)**합니다.
-- `MainWindow`는 `OpenGLWidget`의 **Public Methods** (`set_view_mode`, `clear_points` 등)를 호출하여 상태를 변경합니다.
-- `OpenGLWidget`은 **Signals** (`viewModeChanged`, `pointsChanged`)를 통해 `MainWindow`에 상태 변화를 알립니다.
+- **역할:** 모델러의 UI 레이아웃 및 사용자 입력 처리.
+- **주요 구성요소:**
+  - `glWidget`: `OpenGLWidget` (Central Widget).
+  - `Controls`: 툴바, 우측 도킹 패널(단면 수, 회전축, 렌더 모드 등 설정).
 
----
+#### `OpenGLWidget` (`modeler_opengl.py`) - Model & View
 
-## 2. 제어 흐름 (Control Flow)
+- **역할:** 핵심 그래픽스 코어. 3D 데이터 관리 및 OpenGL 렌더링 담당.
+- **주요 기능:**
+  - **2D Edit:** 프로파일 곡선 편집, 스냅(Snap), 드래그 기능.
+  - **3D Generation:** SOR(Surface of Revolution) 및 Sweep 모델링 알고리즘 수행.
+  - **Rendering:** Wireframe/Solid/Shading 모드 지원, 이중 조명(Key/Fill Light) 적용.
+
+### 1.3. 서브 앱: 미로 게임 (Sub-App: Maze Game)
+
+#### `MiroWindow` (`miro_ui_and_chang.py`)
+
+- **역할:** 게임의 메인 컨테이너. 타이틀 화면과 게임/스토리 화면 전환 관리.
+- **구조:**
+  - **Step 1 (Title):** 게임 모드 선택 (Story, Stage, Custom).
+  - **Step 2 (Story):** `MiroStoryWidget`을 통한 스토리텔링.
+  - **Step 3 (Game):** `MiroOpenGLWidget`을 통한 3D 미로 탐색.
+
+### 1.4. 클래스 다이어그램 요약 (Class Diagram Summary)
+
+- `MainContainer`
+  - (contains) -> `ModelerWindow`
+  - (contains) -> `MiroWindow`
+- `ModelerWindow`
+  - (contains) -> `OpenGLWidget`
+- `MiroWindow`
+  - (contains) -> `MiroStoryWidget`
+  - (contains) -> `MiroOpenGLWidget`
+
+## 2. 제어 흐름 (Control Flow - 3D Modeler)
+
+다음은 **3D Modeler** 서브 앱의 핵심 동작 과정입니다.
 
 ### 2.1. 3D 모델 생성 시퀀스 (Sequence: Create SOR Model)
 
 1.  **User**: 툴바의 '3D View' 버튼 클릭.
-2.  **MainWindow**: `glWidget.set_view_mode('3D')` 호출.
+2.  **ModelerWindow**: `glWidget.set_view_mode('3D')` 호출.
 3.  **OpenGLWidget**:
     1.  `view_mode`를 '3D'로 변경.
     2.  `generate_sor_model()` 실행:
         - 2D `paths` 데이터를 읽음.
-        - 회전 알고리즘을 적용하여 `sor_vertices`, `sor_faces` 생성.
+        - SOR 또는 Sweep 알고리즘을 적용하여 `sor_vertices`, `sor_faces` 생성.
         - `calculate_normals()` 실행하여 조명용 법선 벡터 계산.
     3.  `viewModeChanged.emit('3D')` 시그널 발생.
     4.  `update()` 호출 -> `paintGL()` 트리거.
-4.  **MainWindow**: `viewModeChanged` 시그널 수신 -> `_on_view_mode_changed('3D')` 실행 (2D 컨트롤 숨김, 3D 컨트롤 표시).
+4.  **ModelerWindow**: `viewModeChanged` 시그널 수신 -> `_on_view_mode_changed('3D')` 실행 (2D 컨트롤 숨김, 3D 컨트롤 표시).
 5.  **OpenGLWidget (paintGL)**:
     - `setupProjection()`: `gluPerspective`로 원근 투영 설정.
     - `gluLookAt()`: 카메라 위치 설정.
@@ -75,7 +90,7 @@
     - **New Point**: 빈 공간 클릭 시 현재 `paths`에 점 추가.
     - `pointsChanged.emit()` 시그널 발생.
     - `update()` 호출.
-3.  **MainWindow**: `pointsChanged` 시그널 수신 -> `_update_point_list()` 실행 (우측 패널의 점 목록 UI 갱신).
+3.  **ModelerWindow**: `pointsChanged` 시그널 수신 -> `_update_point_list()` 실행 (우측 패널의 점 목록 UI 갱신).
 
 ---
 
@@ -238,3 +253,11 @@ OS의 라이트/다크 모드 전환을 실시간으로 감지하고 애플리�
   - **인덱스 바운드 체크**: 렌더링 시 잘못된 인덱스 참조로 인한 크래시를 막기 위해 `draw_model`과 `calculate_normals`에 인덱스 유효성 검사 코드를 삽입했습니다.
   - **UI 유연성 확보**: `QToolButton`의 메뉴 인디케이터를 CSS로 제거하여 깔끔한 룩을 구현하고, 패널 너비를 동적으로 설정하여 다양한 해상도와 폰트 환경에 대응하도록 개선했습니다. 또한, 패널 간 간격과 여백을 추가하여 시각적 답답함을 해소했습니다.
   - **실행 흐름 추적**: Windows 환경에서의 크래시 원인을 정확히 파악하기 위해 `generate_model`, `calculate_normals`, `paintGL` 등 핵심 메서드에 상세한 디버그 로그를 추가하여 문제 발생 지점을 추적할 수 있도록 했습니다.
+
+### 6.5. 스토리 모드 구현 (Story Mode Implementation)
+
+- **전용 위젯 (`MiroStoryWidget`)**: 스토리 이미지를 순차적으로 보여주는 독립적인 위젯 클래스를 설계했습니다.
+- **규격화된 뷰 (Standardized View)**:
+  - `AspectRatioLabel` 클래스를 구현하여, 창 크기가 변하더라도 1920x1440 (4:3) 비율의 이미지가 레이아웃 망가짐 없이 항상 중앙에 정비율로 표시되도록 했습니다.
+  - `paintEvent` 오버라이딩을 통해 이미지를 직접 렌더링하고, `QSizePolicy.Ignored`를 적용하여 부모 레이아웃의 리사이즈 루프 문제를 근본적으로 해결했습니다.
+- **네비게이션 (Navigation)**: 이전/다음 버튼을 통해 페이지를 이동하며, 마지막 페이지에서는 타이틀 화면으로 복귀하는 로직을 통합했습니다.

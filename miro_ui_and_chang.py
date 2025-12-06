@@ -58,10 +58,10 @@ class MiroWindow(QMainWindow):
 
     def _create_toolbar(self):
         """툴바 설정 (뷰 모드 드롭다운, 미니맵 토글)"""
-        from PyQt5.QtWidgets import QToolBar, QToolButton, QMenu, QAction, QActionGroup, QWidget, QLabel
+        from PyQt5.QtWidgets import QToolBar, QToolButton, QMenu, QAction, QActionGroup
         
         toolbar = QToolBar("Maze Toolbar")
-        # toolbar.setMovable(True) # 기본값이 True이므로 명시적으로 설정하지 않아도 됨
+        # toolbar.setMovable(True) # 기본값이 True
         self.addToolBar(toolbar)
         
         # 0. 중단 및 타이틀 복귀 버튼
