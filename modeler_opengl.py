@@ -310,17 +310,15 @@ class OpenGLWidget(QOpenGLWidget):
 
         # Wireframe Overlay
         if self.render_mode != 0 and self.show_wireframe:
-            try:
-                glDisable(GL_LIGHTING)
-                glColor3f(1.0, 1.0, 1.0)
-                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-                glEnable(GL_POLYGON_OFFSET_LINE)
-                glPolygonOffset(-1.0, -1.0)
-                self._draw_faces()
-                glDisable(GL_POLYGON_OFFSET_LINE)
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
-            except Exception as e:
-                print(f"Wireframe Overlay Error: {e}")
+            glDisable(GL_LIGHTING)
+            glColor3f(1.0, 1.0, 1.0)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+            glEnable(GL_POLYGON_OFFSET_LINE)
+            glPolygonOffset(-1.0, -1.0)
+            self._draw_faces()
+            glDisable(GL_POLYGON_OFFSET_LINE)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+        
 
     def _draw_faces(self):
         """면 그리기 (Quads/Triangles 분리)"""
@@ -441,23 +439,17 @@ class OpenGLWidget(QOpenGLWidget):
 
     def generate_model(self):
         """현재 모드(SOR/Sweep)에 따라 3D 모델 데이터 생성"""
-        print("[DEBUG] generate_model started")
         try:
             self.sor_vertices = []
             self.sor_normals = []
             self.sor_faces = []
 
             if self.modeling_mode == 0:
-                print("[DEBUG] Calling _generate_sor")
                 self._generate_sor()
             else:
-                print("[DEBUG] Calling _generate_sweep")
                 self._generate_sweep()
             
-            print(f"[DEBUG] Model generated. Vertices: {len(self.sor_vertices)}, Faces: {len(self.sor_faces)}")
-            print("[DEBUG] Calling calculate_normals")
             self.calculate_normals()
-            print("[DEBUG] generate_model finished")
             
         except Exception as e:
             print(f"generate_model Error: {e}")
@@ -466,7 +458,6 @@ class OpenGLWidget(QOpenGLWidget):
 
     def calculate_normals(self):
         """정점 법선 벡터 계산 (Gouraud Shading용)"""
-        print("[DEBUG] calculate_normals started")
         try:
             self.sor_normals = [(0.0, 0.0, 0.0) for _ in range(len(self.sor_vertices))]
             
@@ -474,9 +465,7 @@ class OpenGLWidget(QOpenGLWidget):
             for i, face in enumerate(self.sor_faces):
                 if len(face) < 3: continue
                 # 인덱스 유효성 검사
-                if any(idx >= len(self.sor_vertices) for idx in face):
-                    print(f"[DEBUG] Invalid face index at {i}: {face}")
-                    continue
+                if any(idx >= len(self.sor_vertices) for idx in face): continue
                 
                 v1 = self.sor_vertices[face[0]]
                 v2 = self.sor_vertices[face[1]]
@@ -492,7 +481,6 @@ class OpenGLWidget(QOpenGLWidget):
                     self.sor_normals[idx] = (ox + nx, oy + ny, oz + nz)
             
             # Normalize
-            print("[DEBUG] Normalizing normals")
             for i in range(len(self.sor_normals)):
                 nx, ny, nz = self.sor_normals[i]
                 length = math.sqrt(nx*nx + ny*ny + nz*nz)
@@ -500,8 +488,6 @@ class OpenGLWidget(QOpenGLWidget):
                     self.sor_normals[i] = (nx/length, ny/length, nz/length)
                 else:
                     self.sor_normals[i] = (0.0, 1.0, 0.0) # 기본값 (Y축)
-            
-            print("[DEBUG] calculate_normals finished")
                     
         except Exception as e:
             print(f"calculate_normals Error: {e}")
