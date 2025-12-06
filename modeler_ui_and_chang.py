@@ -510,11 +510,15 @@ class MainWindow(QMainWindow):
             
             # Sync Modeling Mode & Sweep Settings
             self.radio_sor.blockSignals(True); self.radio_sweep.blockSignals(True)
-            if self.glWidget.modeling_mode == 0: self.radio_sor.setChecked(True)
+            is_sor = (self.glWidget.modeling_mode == 0)
+            if is_sor: self.radio_sor.setChecked(True)
             else: self.radio_sweep.setChecked(True)
             self.radio_sor.blockSignals(False); self.radio_sweep.blockSignals(False)
             
-            self._on_modeling_mode_changed()
+            # Update UI Visibility without triggering generation
+            self.slices_group_box.setVisible(is_sor)
+            self.axis_group_box.setVisible(is_sor)
+            self.sweep_group_box.setVisible(not is_sor)
             
             self.slider_length.blockSignals(True); self.slider_twist.blockSignals(True); self.check_caps.blockSignals(True)
             self.slider_length.setValue(int(self.glWidget.sweep_length))
