@@ -279,6 +279,8 @@ class OpenGLWidget(QOpenGLWidget):
 
     def draw_model(self):
         """3D 모델 렌더링 (Solid, Wireframe, Shading)"""
+        if not self.sor_vertices: return
+
         # 렌더링 모드 설정
         glDisable(GL_LIGHTING)
         glDisable(GL_CULL_FACE)
@@ -308,14 +310,17 @@ class OpenGLWidget(QOpenGLWidget):
 
         # Wireframe Overlay
         if self.render_mode != 0 and self.show_wireframe:
-            glDisable(GL_LIGHTING)
-            glColor3f(1.0, 1.0, 1.0)
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-            glEnable(GL_POLYGON_OFFSET_LINE)
-            glPolygonOffset(-1.0, -1.0)
-            self._draw_faces()
-            glDisable(GL_POLYGON_OFFSET_LINE)
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+            try:
+                glDisable(GL_LIGHTING)
+                glColor3f(1.0, 1.0, 1.0)
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+                glEnable(GL_POLYGON_OFFSET_LINE)
+                glPolygonOffset(-1.0, -1.0)
+                self._draw_faces()
+                glDisable(GL_POLYGON_OFFSET_LINE)
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+            except Exception as e:
+                print(f"Wireframe Overlay Error: {e}")
 
     def _draw_faces(self):
         """면 그리기 (Quads/Triangles 분리)"""
@@ -483,10 +488,11 @@ class OpenGLWidget(QOpenGLWidget):
                 cos_t, sin_t = math.cos(theta), math.sin(theta)
 
                 for x, y in path:
+                    # Windows 호환성을 위해 명시적 float 변환
                     if self.rotation_axis == 'Y':
-                        self.sor_vertices.append((x * cos_t, y, -x * sin_t))
+                        self.sor_vertices.append((float(x * cos_t), float(y), float(-x * sin_t)))
                     else:
-                        self.sor_vertices.append((x, y * cos_t, y * sin_t))
+                        self.sor_vertices.append((float(x), float(y * cos_t), float(y * sin_t)))
                     current_path_v_count += 1
 
             # 2. 면 생성 (Quad Strip)
@@ -526,7 +532,8 @@ class OpenGLWidget(QOpenGLWidget):
                 for x, y in path:
                     rx = x * cos_a - y * sin_a
                     ry = x * sin_a + y * cos_a
-                    self.sor_vertices.append((rx, ry, z))
+                    # Windows 호환성을 위해 명시적 float 변환
+                    self.sor_vertices.append((float(rx), float(ry), float(z)))
             
             # 2. 옆면 생성
             num_pts = len(path)
@@ -553,7 +560,7 @@ class OpenGLWidget(QOpenGLWidget):
                 
                 # Start Cap (Z = -Length/2)
                 c_idx = len(self.sor_vertices)
-                self.sor_vertices.append((cx, cy, -0.5 * self.sweep_length))
+                self.sor_vertices.append((float(cx), float(cy), float(-0.5 * self.sweep_length)))
                 
                 first_layer = start_v_idx
                 for i in range(num_pts):
@@ -567,7 +574,7 @@ class OpenGLWidget(QOpenGLWidget):
                 end_angle = math.radians(self.sweep_twist)
                 rcx = cx * math.cos(end_angle) - cy * math.sin(end_angle)
                 rcy = cx * math.sin(end_angle) + cy * math.cos(end_angle)
-                self.sor_vertices.append((rcx, rcy, 0.5 * self.sweep_length))
+                self.sor_vertices.append((float(rcx), float(rcy), float(0.5 * self.sweep_length)))
                 
                 last_layer = start_v_idx + steps * num_pts
                 for i in range(num_pts):

@@ -228,3 +228,8 @@ OS의 라이트/다크 모드 전환을 실시간으로 감지하고 애플리�
 - **QToolBar 통합**: 기존의 `QMenuBar`를 `QToolBar`로 교체하여 3D 모델러와 동일한 심미적 일관성을 확보했습니다. 'View Mode'는 `InstantPopup` 모드의 `QToolButton`을 사용하여 드롭다운 메뉴로, 'Minimap'은 표준 `QAction`을 사용하여 토글 버튼으로 구현했습니다.
 - **레이아웃 관리**: `setCentralWidget`을 사용하여 메인 레이아웃 컨테이너를 설정함으로써, 기존의 중첩된 레이아웃 구조를 단순화하고 표준화했습니다.
 - **동적 UI 요소**: 설정 항목을 체계적으로 정리하기 위해 중첩된 `QGroupBox`를 구현하고, 툴바에 '타이틀로 복귀' 기능을 직접 추가하여 사용자 편의성을 높였습니다.
+
+### 6.4. 크로스 플랫폼 호환성 (Cross-Platform Compatibility)
+
+- **Windows UI 렌더링 대응**: Windows 환경에서의 폰트 렌더링 차이로 인한 UI 잘림 현상을 해결하기 위해, `QGroupBox`의 너비를 확장하고 `QToolButton`에 CSS 패딩을 적용하여 시각적 공간을 확보했습니다.
+- **OpenGL 데이터 안정성**: Windows OpenGL 드라이버의 엄격한 타입 체크로 인한 크래시를 방지하기 위해, 모든 정점 데이터(`glVertex3f`)에 대해 명시적인 `float` 형변환을 적용했습니다. 또한, `glPolygonOffset` 사용 시 발생할 수 있는 예외 상황에 대비하여 안전장치(`try-except`)를 마련했습니다.

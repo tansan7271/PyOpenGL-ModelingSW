@@ -33,7 +33,7 @@ class MainContainer(QMainWindow):
         self.sidebar = QWidget()
         self.sidebar.setFixedWidth(52)
         sidebar_layout = QVBoxLayout(self.sidebar)
-        sidebar_layout.setContentsMargins(5, 25, 5, 5)
+        sidebar_layout.setContentsMargins(5, 35, 5, 5)
         sidebar_layout.setSpacing(0)
 
         # Sidebar Menu Items
