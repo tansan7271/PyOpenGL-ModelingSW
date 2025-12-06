@@ -328,20 +328,38 @@ class OpenGLWidget(QOpenGLWidget):
         glBegin(GL_QUADS)
         for face in self.sor_faces:
             if len(face) == 4:
+                # 인덱스 유효성 검사
+                if any(idx >= len(self.sor_vertices) for idx in face): continue
+                
                 for idx in face:
                     if idx < len(self.sor_normals):
-                        glNormal3f(*self.sor_normals[idx])
-                    glVertex3f(*self.sor_vertices[idx])
+                        nx, ny, nz = self.sor_normals[idx]
+                        # NaN/Inf 검사
+                        if not (math.isnan(nx) or math.isinf(nx)):
+                            glNormal3f(nx, ny, nz)
+                    
+                    vx, vy, vz = self.sor_vertices[idx]
+                    # NaN/Inf 검사
+                    if not (math.isnan(vx) or math.isinf(vx)):
+                        glVertex3f(vx, vy, vz)
         glEnd()
 
         # 2. Triangles (삼각형 면 - Caps 등)
         glBegin(GL_TRIANGLES)
         for face in self.sor_faces:
             if len(face) == 3:
+                # 인덱스 유효성 검사
+                if any(idx >= len(self.sor_vertices) for idx in face): continue
+
                 for idx in face:
                     if idx < len(self.sor_normals):
-                        glNormal3f(*self.sor_normals[idx])
-                    glVertex3f(*self.sor_vertices[idx])
+                        nx, ny, nz = self.sor_normals[idx]
+                        if not (math.isnan(nx) or math.isinf(nx)):
+                            glNormal3f(nx, ny, nz)
+                    
+                    vx, vy, vz = self.sor_vertices[idx]
+                    if not (math.isnan(vx) or math.isinf(vx)):
+                        glVertex3f(vx, vy, vz)
         glEnd()
 
     # =========================================================================
@@ -448,6 +466,9 @@ class OpenGLWidget(QOpenGLWidget):
             # Face Normal 계산 및 정점에 누적
             for face in self.sor_faces:
                 if len(face) < 3: continue
+                # 인덱스 유효성 검사
+                if any(idx >= len(self.sor_vertices) for idx in face): continue
+                
                 v1 = self.sor_vertices[face[0]]
                 v2 = self.sor_vertices[face[1]]
                 v3 = self.sor_vertices[face[2]]
@@ -465,8 +486,10 @@ class OpenGLWidget(QOpenGLWidget):
             for i in range(len(self.sor_normals)):
                 nx, ny, nz = self.sor_normals[i]
                 length = math.sqrt(nx*nx + ny*ny + nz*nz)
-                if length > 0:
+                if length > 1e-6: # 0으로 나누기 방지
                     self.sor_normals[i] = (nx/length, ny/length, nz/length)
+                else:
+                    self.sor_normals[i] = (0.0, 1.0, 0.0) # 기본값 (Y축)
                     
         except Exception as e:
             print(f"calculate_normals Error: {e}")

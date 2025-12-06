@@ -67,8 +67,8 @@ class MiroWindow(QMainWindow):
         btn_view_mode = QToolButton()
         btn_view_mode.setText("View Mode")
         btn_view_mode.setPopupMode(QToolButton.InstantPopup) # 클릭 시 메뉴 즉시 표시
-        # Windows에서 화살표 아이콘 공간 확보를 위한 스타일
-        btn_view_mode.setStyleSheet("QToolButton { padding-right: 20px; } QToolButton::menu-indicator { width: 12px; }")
+        # 화살표 아이콘 제거 및 패딩 설정 (플랫폼 공통)
+        btn_view_mode.setStyleSheet("QToolButton::menu-indicator { image: none; } QToolButton { padding-right: 10px; padding-left: 10px; }")
         
         view_menu = QMenu(btn_view_mode)
         view_group = QActionGroup(self)
@@ -134,7 +134,8 @@ class MiroWindow(QMainWindow):
         
         # --- [좌측] 스토리 모드 패널 ---
         group_story = QGroupBox("Story Mode")
-        group_story.setFixedWidth(320) # Windows 폰트 크기 대응을 위해 너비 증가
+        group_story.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred) # 동적 너비
+        group_story.setMinimumWidth(300) # 최소 너비 설정
         
         story_layout = QVBoxLayout(group_story)
         story_layout.setContentsMargins(20, 20, 20, 20)
@@ -172,7 +173,8 @@ class MiroWindow(QMainWindow):
         
         # --- [우측] 커스텀 모드 패널 ---
         group_custom = QGroupBox("Custom Mode")
-        group_custom.setFixedWidth(320) # Windows 폰트 크기 대응을 위해 너비 증가
+        group_custom.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred) # 동적 너비
+        group_custom.setMinimumWidth(300) # 최소 너비 설정
         
         custom_layout = QVBoxLayout(group_custom)
         custom_layout.setSpacing(15)
