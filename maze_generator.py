@@ -124,6 +124,7 @@ class Maze:
         offset_z = -(self.height * scale) / 2
 
         vertex_count = 0
+        floor_thickness = 0.1  # 바닥 두께
 
         def add_box(x0, x1, z0, z1):
             """박스(큐브) 하나를 vertices와 faces에 추가"""
@@ -149,13 +150,40 @@ class Maze:
             faces.append((base+3, base+0, base+4, base+7))  # Left
             vertex_count += 8
 
+        def add_floor_box(x0, x1, z0, z1):
+            """바닥 박스를 vertices와 faces에 추가 (y=-floor_thickness ~ 0)"""
+            nonlocal vertex_count
+            # Bottom (y=-floor_thickness)
+            v_bottom = [
+                (x0, -floor_thickness, z0), (x1, -floor_thickness, z0),
+                (x1, -floor_thickness, z1), (x0, -floor_thickness, z1)
+            ]
+            # Top (y=0)
+            v_top = [
+                (x0, 0, z0), (x1, 0, z0),
+                (x1, 0, z1), (x0, 0, z1)
+            ]
+            vertices.extend(v_bottom + v_top)
+
+            base = vertex_count
+            faces.append((base+0, base+3, base+2, base+1))  # Bottom
+            faces.append((base+4, base+5, base+6, base+7))  # Top
+            faces.append((base+0, base+1, base+5, base+4))  # Front
+            faces.append((base+1, base+2, base+6, base+5))  # Right
+            faces.append((base+2, base+3, base+7, base+6))  # Back
+            faces.append((base+3, base+0, base+4, base+7))  # Left
+            vertex_count += 8
+
         for y in range(self.height):
             for x in range(self.width):
-                if self.grid[y][x] == 1:  # 벽인 경우
-                    # 기준 좌표 (셀의 왼쪽 하단)
-                    bx = x * scale + offset_x
-                    bz = y * scale + offset_z
+                # 기준 좌표 (셀의 왼쪽 하단)
+                bx = x * scale + offset_x
+                bz = y * scale + offset_z
 
+                # 모든 셀에 바닥 생성 (벽/통로 무관)
+                add_floor_box(bx, bx + scale, bz, bz + scale)
+
+                if self.grid[y][x] == 1:  # 벽인 경우
                     # 중앙 박스 좌표
                     cx0 = bx + inset
                     cx1 = bx + inset + thickness

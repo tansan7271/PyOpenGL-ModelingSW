@@ -262,23 +262,24 @@ class MiroWindow(QMainWindow):
     def _setup_game_page(self):
         """게임 화면 UI 구성"""
         layout = QVBoxLayout(self.page_game)
-        
+
         # 상단 정보 바
         info_bar = QHBoxLayout()
         self.lbl_game_info = QLabel("Mode: None")
         self.lbl_game_info.setStyleSheet("color: white; font-weight: bold; font-size: 14px;")
-        
+
         btn_back = QPushButton("Back to Title")
         btn_back.setFixedSize(100, 30)
         btn_back.clicked.connect(self._return_to_title)
-        
+
         info_bar.addWidget(self.lbl_game_info)
         info_bar.addStretch()
         info_bar.addWidget(btn_back)
         layout.addLayout(info_bar)
-        
+
         # OpenGL 위젯
         self.gl_widget = MiroOpenGLWidget()
+        self.gl_widget.game_won.connect(self._on_game_won)
         layout.addWidget(self.gl_widget)
 
     def _toggle_custom_setup(self):
@@ -290,15 +291,23 @@ class MiroWindow(QMainWindow):
     def _start_game(self, mode):
         """게임 시작 처리"""
         print(f"Starting Game: {mode}")
-        
+
         if mode == "Story Read":
             # 스토리 모드 시작
             self.story_widget.reset_story()
             self.stack.setCurrentWidget(self.story_widget)
             return
-        
-        config = {}
-        if mode == "Custom":
+
+        # Stage별 미로 파일 경로 설정
+        maze_file = None
+        if mode == "Stage 1":
+            maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_01.dat')
+        elif mode == "Stage 2":
+            maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_02.dat')
+        elif mode == "Stage 3":
+            maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_03.dat')
+        elif mode == "Custom":
+            # 커스텀 모드: 동적으로 미로 생성
             config = {
                 "width": self.spin_width.value(),
                 "height": self.spin_height.value(),
@@ -307,17 +316,34 @@ class MiroWindow(QMainWindow):
                 "theme": self.combo_theme.currentText()
             }
             print(f"Custom Config: {config}")
-        
-        # 게임 정보 업데이트
-        self.lbl_game_info.setText(f"Current Mode: {mode}")
-        
-        # 화면 전환
-        self.stack.setCurrentIndex(1)
-        
-        # TODO: OpenGL 위젯에 게임 모드 및 설정 전달
-        # self.gl_widget.start_game(mode, config)
+            # TODO: 커스텀 미로 생성 및 로드 구현
+            QMessageBox.information(self, "Custom Mode", "Custom mode is not yet implemented.")
+            return
+
+        # 미로 파일 로드 및 게임 시작
+        if maze_file and os.path.exists(maze_file):
+            self.gl_widget.load_maze(maze_file)
+
+            # 게임 정보 업데이트
+            self.lbl_game_info.setText(f"Current Mode: {mode} | WASD: Move | Mouse: Look | ESC: Quit")
+
+            # 화면 전환
+            self.stack.setCurrentIndex(1)
+
+            # 게임 시작
+            self.gl_widget.start_game()
+        else:
+            QMessageBox.warning(self, "Error", f"Maze file not found: {maze_file}")
+
+    def _on_game_won(self):
+        """게임 클리어 처리"""
+        QMessageBox.information(self, "Congratulations!", "You escaped the maze!")
+        self._return_to_title()
 
     def _return_to_title(self):
         """타이틀 화면으로 복귀"""
+        # 게임 중지
+        if hasattr(self, 'gl_widget') and self.gl_widget.game_active:
+            self.gl_widget.stop_game()
         self.stack.setCurrentIndex(0)
 
