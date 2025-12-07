@@ -73,33 +73,7 @@ class MiroWindow(QMainWindow):
         action_abort.triggered.connect(self._return_to_title)
         toolbar.addAction(action_abort)
         
-        toolbar.addSeparator()
-        
-        # 1. 뷰 모드 (드롭다운)
-        btn_view_mode = QToolButton()
-        btn_view_mode.setText("View Mode")
-        btn_view_mode.setPopupMode(QToolButton.InstantPopup) # 클릭 시 메뉴 즉시 표시
-        # 화살표 아이콘 제거 및 패딩 설정 (플랫폼 공통)
-        btn_view_mode.setStyleSheet("QToolButton::menu-indicator { image: none; } QToolButton { padding-right: 10px; padding-left: 10px; }")
-        
-        view_menu = QMenu(btn_view_mode)
-        view_group = QActionGroup(self)
-        
-        self.action_1st_person = QAction("1st Person View", self)
-        self.action_1st_person.setCheckable(True)
-        self.action_1st_person.setChecked(True) # 기본값
-        view_menu.addAction(self.action_1st_person)
-        view_group.addAction(self.action_1st_person)
-        
-        self.action_3rd_person = QAction("3rd Person View", self)
-        self.action_3rd_person.setCheckable(True)
-        view_menu.addAction(self.action_3rd_person)
-        view_group.addAction(self.action_3rd_person)
-        
-        btn_view_mode.setMenu(view_menu)
-        toolbar.addWidget(btn_view_mode)
-        
-        toolbar.addSeparator()
+
         
         # 2. 미니맵 (토글 액션)
         self.action_minimap = QAction("Show Minimap", self)
@@ -228,23 +202,39 @@ class MiroWindow(QMainWindow):
         
         custom_layout.addWidget(group_maze_settings)
         
-        # 환경 설정 그룹
-        group_env = QGroupBox("Environment")
-        env_layout = QVBoxLayout(group_env)
+        # 미로 상세 설정 그룹 (Environment 대체)
+        group_maze_details = QGroupBox("Details")
+        details_layout = QVBoxLayout(group_maze_details)
         
-        # 날씨
-        env_layout.addWidget(QLabel("Weather:"))
-        self.combo_weather = QComboBox()
-        self.combo_weather.addItems(["Clear", "Rain", "Snow"])
-        env_layout.addWidget(self.combo_weather)
+        # 벽 두께 설정
+        thickness_layout = QHBoxLayout()
+        thickness_layout.addWidget(QLabel("Wall Thickness:"))
+        from PyQt5.QtWidgets import QDoubleSpinBox # Import added
+        self.spin_thickness = QDoubleSpinBox()
+        self.spin_thickness.setRange(0.1, 1.0)
+        self.spin_thickness.setSingleStep(0.1)
+        self.spin_thickness.setValue(0.1)
+        self.spin_thickness.valueChanged.connect(self._on_thickness_changed)
+        thickness_layout.addWidget(self.spin_thickness)
+        details_layout.addLayout(thickness_layout)
+
+        # 벽 높이 설정 (추가)
+        height_layout = QHBoxLayout()
+        height_layout.addWidget(QLabel("Wall Height:"))
+        self.spin_wall_height = QDoubleSpinBox()
+        self.spin_wall_height.setRange(0.5, 5.0) # 0.5 ~ 5.0 높이
+        self.spin_wall_height.setSingleStep(0.5)
+        self.spin_wall_height.setValue(2.0)
+        height_layout.addWidget(self.spin_wall_height)
+        details_layout.addLayout(height_layout)
         
-        # 테마
-        env_layout.addWidget(QLabel("Theme:"))
-        self.combo_theme = QComboBox()
-        self.combo_theme.addItems(["Inside 810-Gwan (One Hyung-Gwan)", "Between University Buildings", "The Path to the Main Gate"])
-        env_layout.addWidget(self.combo_theme)
+        # 높낮이 활성화 (두께가 1.0일 때만 가능)
+        self.check_height_variation = QCheckBox("Enable Height Variation (Floor)")
+        self.check_height_variation.setChecked(False)
+        self.check_height_variation.setToolTip("Only available when Wall Thickness is 1.0 (Creates uneven terrain)")
+        details_layout.addWidget(self.check_height_variation)
         
-        custom_layout.addWidget(group_env)
+        custom_layout.addWidget(group_maze_details)
         
         custom_layout.addStretch()
         content_layout.addWidget(group_custom)
@@ -252,16 +242,48 @@ class MiroWindow(QMainWindow):
         layout.addLayout(content_layout)
         layout.addStretch()
         
-        # 안개 효과
-        self.check_fog = QCheckBox("Enable Fog")
+        # 환경 설정 (가로 배치: 날씨 | 테마 | 안개)
+        env_layout = QHBoxLayout()
+        
+        # 1. 날씨
+        env_layout.addWidget(QLabel("Weather:"))
+        self.combo_weather = QComboBox()
+        self.combo_weather.addItems(["Clear", "Rain", "Snow"])
+        env_layout.addWidget(self.combo_weather)
+        
+        # 2. 테마
+        env_layout.addWidget(QLabel("Theme:"))
+        self.combo_theme = QComboBox()
+        self.combo_theme.addItems(["810-Gwan", "Inside Campus", "Path to the Main Gate"]) # Shortened names for better layout
+        env_layout.addWidget(self.combo_theme)
+
+        # 3. 안개
+        self.check_fog = QCheckBox("Fog")
         self.check_fog.setChecked(True)
         env_layout.addWidget(self.check_fog)
+        
+        env_layout.addStretch() # 우측 여백
+        custom_layout.addLayout(env_layout)
+        
+        # 초기 상태 업데이트
+        self._on_thickness_changed(self.spin_thickness.value())
 
         # 크레딧 (하단)
         lbl_credits = QLabel("컴퓨터그래픽스 02분반 ∙ 06조 ∙ 김도균(20225525), 오성진(20225534), 권민준(20231389)")
         lbl_credits.setAlignment(Qt.AlignCenter)
         lbl_credits.setStyleSheet("font-weight: bold; color: #666; font-size: 14px; margin-bottom: 20px;")
         layout.addWidget(lbl_credits)
+
+    def _on_thickness_changed(self, value):
+        """벽 두께 변경 시 높낮이 옵션 활성화 여부 제어"""
+        # 부동소수점 비교 시 epsilon 사용 또는 근사값 비교
+        if abs(value - 1.0) < 0.001:
+            self.check_height_variation.setEnabled(True)
+            self.check_height_variation.setText("Height Variation (Available)")
+        else:
+            self.check_height_variation.setEnabled(False)
+            self.check_height_variation.setChecked(False)
+            self.check_height_variation.setText("Height Variation (Available when Wall Thickness is set to 1.0)")
 
     def _setup_game_page(self):
         """게임 화면 UI 구성"""
@@ -327,17 +349,34 @@ class MiroWindow(QMainWindow):
             self._start_timer(mode, 120) # 120초 제한
         elif mode == "Custom":
             # 커스텀 모드: 동적으로 미로 생성
-            config = {
-                "width": self.spin_width.value(),
-                "height": self.spin_height.value(),
-                "fog": self.check_fog.isChecked(),
-                "weather": self.combo_weather.currentText(),
-                "theme": self.combo_theme.currentText()
-            }
-            print(f"Custom Config: {config}")
-            # TODO: 커스텀 미로 생성 구현
-            QMessageBox.information(self, "Custom Mode", "Custom mode is not yet implemented.")
-            return
+            try:
+                import maze_generator
+                
+                width = self.spin_width.value()
+                height = self.spin_height.value()
+                wall_thickness = self.spin_thickness.value()
+                wall_height = self.spin_wall_height.value()
+                
+                # 미로 생성
+                print(f"Generating Custom Maze ({width}x{height})...")
+                maze = maze_generator.Maze(width, height)
+                maze.generate()
+                
+                # 저장 경로 설정
+                if not os.path.exists('datasets'):
+                    os.makedirs('datasets')
+                
+                custom_maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'custom_maze.dat')
+                
+                # .dat 파일로 내보내기
+                maze.export_to_dat(custom_maze_file, wall_thickness=wall_thickness, wall_height=wall_height)
+                
+                maze_file = custom_maze_file
+                self._start_timer(mode) # 커스텀 모드 타이머(스톱워치) 시작
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Generation Error", f"Failed to generate maze: {e}")
+                return
 
         # 미로 파일 로드 및 게임 시작
         if maze_file and os.path.exists(maze_file):
@@ -345,6 +384,10 @@ class MiroWindow(QMainWindow):
 
             # 게임 정보 업데이트
             self.lbl_game_info.setText(f"Current Mode: {mode} | WASD: Move | Mouse: Look | ESC: Quit")
+            
+            # 커스텀 모드인 경우 추가 정보 표시
+            if mode == "Custom":
+                 self.lbl_game_info.setText(f"Mode: Custom ({self.spin_width.value()}x{self.spin_height.value()}) | WASD: Move | Mouse: Look")
 
             # 화면 전환
             self.stack.setCurrentIndex(1)

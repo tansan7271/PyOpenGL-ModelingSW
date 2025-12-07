@@ -414,12 +414,27 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 모든 셀을 통로로 초기화 (0)
         self.maze_grid = [[0 for _ in range(grid_width)] for _ in range(grid_height)]
 
-        # 벽 정점이 있는 셀을 벽으로 표시 (1)
-        # 벽은 y > 0.1인 정점이 있는 위치
-        for v in self.maze_vertices:
-            if v[1] > 0.1:  # 바닥이 아닌 정점 (벽)
-                gx = int((v[0] - min_x) / grid_scale)
-                gz = int((v[2] - min_z) / grid_scale)
+        # 벽의 윗면(Top Face)을 찾아 해당 셀을 벽으로 표시 (1)
+        # 벽은 바닥(y=0)에서 시작하므로, 모든 정점의 y가 0.1보다 큰 면은 벽의 윗면뿐입니다.
+        # 정점 기반 판정은 벽 두께가 1.0일 때 이웃 셀을 침범하는 문제가 있어, 면의 중심점을 사용합니다.
+        for face in self.maze_faces:
+            # 면을 구성하는 정점들의 좌표 가져오기
+            verts = [self.maze_vertices[idx] for idx in face if idx < len(self.maze_vertices)]
+            if not verts:
+                continue
+
+            # y좌표 최소값 확인 (0.1보다 크면 바닥에 닿지 않은 면 = 윗면)
+            min_y = min(v[1] for v in verts)
+            
+            if min_y > 0.1:
+                # 면의 중심점(X, Z) 계산
+                avg_x = sum(v[0] for v in verts) / len(verts)
+                avg_z = sum(v[2] for v in verts) / len(verts)
+                
+                # 그리드 인덱스로 변환
+                gx = int((avg_x - min_x) / grid_scale)
+                gz = int((avg_z - min_z) / grid_scale)
+                
                 if 0 <= gz < grid_height and 0 <= gx < grid_width:
                     self.maze_grid[gz][gx] = 1
 
