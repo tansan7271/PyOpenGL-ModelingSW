@@ -255,6 +255,7 @@ class MiroWindow(QMainWindow):
         env_layout.addWidget(QLabel("Theme:"))
         self.combo_theme = QComboBox()
         self.combo_theme.addItems(["810-Gwan", "Inside Campus", "Path to the Main Gate"]) # Shortened names for better layout
+        self.combo_theme.currentTextChanged.connect(self._on_theme_changed)
         env_layout.addWidget(self.combo_theme)
 
         # 3. 안개
@@ -273,6 +274,10 @@ class MiroWindow(QMainWindow):
         lbl_credits.setAlignment(Qt.AlignCenter)
         lbl_credits.setStyleSheet("font-weight: bold; color: #666; font-size: 14px; margin-bottom: 20px;")
         layout.addWidget(lbl_credits)
+
+    def _on_theme_changed(self, theme_text):
+        """테마 변경 핸들러"""
+        self.gl_widget.set_theme(theme_text)
 
     def _on_thickness_changed(self, value):
         """벽 두께 변경 시 높낮이 옵션 활성화 여부 제어"""
@@ -339,12 +344,15 @@ class MiroWindow(QMainWindow):
         # Stage별 미로 파일 경로 설정
         maze_file = None
         if mode == "Stage 1":
+            self.combo_theme.setCurrentText("810-Gwan") # 테마 자동 설정
             maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_01.dat')
             self._start_timer(mode, 60) # 60초 제한
         elif mode == "Stage 2":
+            self.combo_theme.setCurrentText("Inside Campus") # 테마 자동 설정
             maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_02.dat')
             self._start_timer(mode, 90) # 90초 제한
         elif mode == "Stage 3":
+            self.combo_theme.setCurrentText("Path to the Main Gate") # 테마 자동 설정
             maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_03.dat')
             self._start_timer(mode, 120) # 120초 제한
         elif mode == "Custom":
