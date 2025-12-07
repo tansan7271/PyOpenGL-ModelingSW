@@ -3,10 +3,9 @@ import os
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QListWidget, QListWidgetItem
 from PyQt5.QtCore import Qt, QSize, QEvent
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QPalette
-# QtSvg 모듈은 .svg 파일을 아이콘으로 사용하기 위해 필요합니다.
 from PyQt5.QtSvg import QSvgRenderer
 
-# Import Sub-Applications
+# 서브 애플리케이션 호출~!
 from modeler_ui_and_chang import MainWindow as ModelerWindow
 from miro_ui_and_chang import MiroWindow
 
@@ -20,23 +19,23 @@ class MainContainer(QMainWindow):
         self.setWindowTitle("PyOpenGL Project: Modeler & Maze")
         self.resize(1280, 800)
 
-        # Central Widget
+        # 중앙 위젯
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        # Main Layout (Horizontal: Sidebar | Content)
+        # 메인 레이아웃 잡기
         main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
-        # --- 1. Sidebar ---
+        # --- 1. 사이드바 ---
         self.sidebar = QWidget()
         self.sidebar.setFixedWidth(52)
         sidebar_layout = QVBoxLayout(self.sidebar)
         sidebar_layout.setContentsMargins(5, 35, 5, 5)
         sidebar_layout.setSpacing(0)
 
-        # Sidebar Menu Items
+        # 사이드바 메뉴 아이템
         self.menu_list = QListWidget()
         self.menu_list.setFocusPolicy(Qt.NoFocus)
         self.menu_list.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -61,11 +60,11 @@ class MainContainer(QMainWindow):
         sidebar_layout.addWidget(self.menu_list)
         main_layout.addWidget(self.sidebar)
         
-        # --- 2. Content Area (Stacked Widget) ---
+        # --- 2. 컨텐츠 영역 (Stacked Widget) ---
         self.stack = QStackedWidget()
         main_layout.addWidget(self.stack)
         
-        # Initialize Sub-Apps
+        # 서브 애플리케이션 호출
         self.modeler = ModelerWindow()
         self.modeler.setWindowFlags(Qt.Widget)
         
@@ -74,7 +73,7 @@ class MainContainer(QMainWindow):
         self.stack.addWidget(self.modeler)
         self.stack.addWidget(self.maze)
         
-        # Connect Signals
+        # 연결
         self.menu_list.currentRowChanged.connect(self.stack.setCurrentIndex)
         # 초기 화면 설정 (0: Modeler, 1: Maze Game)
         self.stack.setCurrentIndex(1)

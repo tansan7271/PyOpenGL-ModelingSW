@@ -6,8 +6,8 @@
 import os
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
                              QStackedWidget, QGroupBox, QSpinBox, QCheckBox, QComboBox, 
-                             QSpacerItem, QSizePolicy, QMessageBox)
-from PyQt5.QtCore import Qt, QSize
+                             QSpacerItem, QSizePolicy, QMessageBox, QProgressBar)
+from PyQt5.QtCore import Qt, QSize, QTimer
 from PyQt5.QtGui import QPixmap, QFont
 from miro_opengl import MiroOpenGLWidget
 from miro_story import MiroStoryWidget
@@ -19,6 +19,11 @@ class MiroWindow(QMainWindow):
     """
     def __init__(self):
         super().__init__()
+        self.game_timer = QTimer()
+        self.game_timer.timeout.connect(self._update_timer)
+        self.time_limit = 0
+        self.current_time = 0
+        self.is_custom_mode = False
         self._setup_ui()
 
     def _setup_ui(self):
@@ -53,7 +58,6 @@ class MiroWindow(QMainWindow):
         
         # 초기 화면 설정
         self.stack.setCurrentIndex(0)
-
 
 
     def _create_toolbar(self):
@@ -261,26 +265,38 @@ class MiroWindow(QMainWindow):
 
     def _setup_game_page(self):
         """게임 화면 UI 구성"""
+        from PyQt5.QtGui import QFont
         layout = QVBoxLayout(self.page_game)
 
         # 상단 정보 바
         info_bar = QHBoxLayout()
         self.lbl_game_info = QLabel("Mode: None")
-        self.lbl_game_info.setStyleSheet("color: white; font-weight: bold; font-size: 14px;")
-
-        btn_back = QPushButton("Back to Title")
-        btn_back.setFixedSize(100, 30)
-        btn_back.clicked.connect(self._return_to_title)
-
+        font = QFont()
+        font.setPointSize(10)
+        self.lbl_game_info.setFont(font)
+        self.lbl_game_info.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        
+        # 타이머 라벨 (우측 상단)
+        self.lbl_timer = QLabel("00:00")
+        # 기본 폰트 사용, 정렬만 설정
+        self.lbl_timer.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        
         info_bar.addWidget(self.lbl_game_info)
         info_bar.addStretch()
-        info_bar.addWidget(btn_back)
+        info_bar.addWidget(self.lbl_timer)
+        
         layout.addLayout(info_bar)
+
+        # 진행률 바 (시간 제한 시각화)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setTextVisible(False) # 텍스트 미표시 (타이머가 있으므로)
+        # 기본 스타일 유지 (OS Native Look)
+        layout.addWidget(self.progress_bar)
 
         # OpenGL 위젯
         self.gl_widget = MiroOpenGLWidget()
         self.gl_widget.game_won.connect(self._on_game_won)
-        layout.addWidget(self.gl_widget)
+        layout.addWidget(self.gl_widget, 1) # Stretch Factor 1 추가
 
     def _toggle_custom_setup(self):
         """커스텀 설정 패널 표시/숨김 토글 (현재 사용 안 함)"""
@@ -302,10 +318,13 @@ class MiroWindow(QMainWindow):
         maze_file = None
         if mode == "Stage 1":
             maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_01.dat')
+            self._start_timer(mode, 60) # 60초 제한
         elif mode == "Stage 2":
             maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_02.dat')
+            self._start_timer(mode, 90) # 90초 제한
         elif mode == "Stage 3":
             maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_03.dat')
+            self._start_timer(mode, 120) # 120초 제한
         elif mode == "Custom":
             # 커스텀 모드: 동적으로 미로 생성
             config = {
@@ -316,7 +335,7 @@ class MiroWindow(QMainWindow):
                 "theme": self.combo_theme.currentText()
             }
             print(f"Custom Config: {config}")
-            # TODO: 커스텀 미로 생성 및 로드 구현
+            # TODO: 커스텀 미로 생성 구현
             QMessageBox.information(self, "Custom Mode", "Custom mode is not yet implemented.")
             return
 
@@ -335,14 +354,72 @@ class MiroWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "Error", f"Maze file not found: {maze_file}")
 
+    def _start_timer(self, mode, limit_seconds=0):
+        """타이머 시작"""
+        self.game_mode = mode
+        self.lbl_timer.setStyleSheet("") # 스타일 초기화
+        
+        if mode == "Custom":
+            self.is_custom_mode = True
+            self.current_time = 0
+            self.time_limit = 0
+            self.progress_bar.setRange(0, 0) # Indeterminate mode (busy)
+        else:
+            self.is_custom_mode = False
+            self.time_limit = limit_seconds
+            self.current_time = limit_seconds
+            self.progress_bar.setRange(0, limit_seconds)
+            self.progress_bar.setValue(limit_seconds)
+        
+        self.game_timer.start(1000) # 1초마다 업데이트
+        self._update_timer_display()
+
+    def _update_timer(self):
+        """타이머 업데이트 (1초마다 호출)"""
+        if self.is_custom_mode:
+            # 카운트 업 (스톱워치)
+            self.current_time += 1
+        else:
+            # 카운트 다운 (타이머)
+            self.current_time -= 1
+            self.progress_bar.setValue(self.current_time)
+            
+            # 색상 변경 (긴박감 조성) - 텍스트 색상만 변경하여 OS 기본 UI 유지
+            if self.current_time <= 10:
+                self.lbl_timer.setStyleSheet("color: red; font-weight: bold;")
+            elif self.current_time <= 30:
+                self.lbl_timer.setStyleSheet("color: #FF5722; font-weight: bold;") # Deep Orange
+            else:
+                self.lbl_timer.setStyleSheet("")
+            
+            if self.current_time <= 0:
+                self._on_game_over()
+                return
+
+        self._update_timer_display()
+
+    def _update_timer_display(self):
+        """타이머 라벨 업데이트"""
+        mins, secs = divmod(self.current_time, 60)
+        self.lbl_timer.setText(f"{mins:02d}:{secs:02d}")
+
+    def _on_game_over(self):
+        """게임 오버 (시간 초과) 처리"""
+        self.game_timer.stop()
+        self.gl_widget.stop_game()
+        QMessageBox.critical(self, "Game Over", "Time's up! You failed to escape.")
+        self._return_to_title()
+
     def _on_game_won(self):
         """게임 클리어 처리"""
-        QMessageBox.information(self, "Congratulations!", "You escaped the maze!")
+        self.game_timer.stop()
+        QMessageBox.information(self, "Congratulations!", f"You escaped!\nTime: {self.lbl_timer.text()}")
         self._return_to_title()
 
     def _return_to_title(self):
         """타이틀 화면으로 복귀"""
-        # 게임 중지
+        # 게임 중지 및 타이머 정지
+        self.game_timer.stop()
         if hasattr(self, 'gl_widget') and self.gl_widget.game_active:
             self.gl_widget.stop_game()
         self.stack.setCurrentIndex(0)
