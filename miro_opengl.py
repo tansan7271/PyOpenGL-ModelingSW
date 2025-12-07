@@ -4,10 +4,12 @@ Miro Game OpenGL Widget - 1인칭 미로 게임
 """
 
 import math
+import os
 import numpy as np
 from PyQt5.QtWidgets import QOpenGLWidget
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPoint
-from PyQt5.QtGui import QCursor
+from PyQt5.QtGui import QCursor, QImage
+
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
@@ -68,15 +70,22 @@ class MiroOpenGLWidget(QOpenGLWidget):
         self.setFocusPolicy(Qt.StrongFocus)
 
         # VBO IDs
-        self.vbo_vertices = None
-        self.vbo_normals = None
-        self.vbo_indices = None
+        self.vbo_wall_vertices = None
+        self.vbo_wall_uvs = None
+        self.vbo_wall_normals = None
+        self.vbo_floor_vertices = None
+        self.vbo_floor_uvs = None
+        self.vbo_floor_normals = None
         self.vbo_wireframe_indices = None
+        
+        # 텍스처 ID
+        self.texture_wall = None
+        self.texture_floor = None
 
         # VBO 메타데이터
         self.vbo_initialized = False
-        self.index_count = 0
-        self.wireframe_index_count = 0
+        self.wall_count = 0
+        self.floor_count = 0
 
         # 캐싱된 Quadric (목표 지점 렌더링용)
         self.goal_quadric = None
@@ -89,15 +98,62 @@ class MiroOpenGLWidget(QOpenGLWidget):
         glEnable(GL_LIGHT0)
         glEnable(GL_COLOR_MATERIAL)
         glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
+        
+        glEnable(GL_TEXTURE_2D) # 텍스처 활성화
 
         # 조명 설정
         glLightfv(GL_LIGHT0, GL_POSITION, [0.0, 10.0, 0.0, 1.0])
-        glLightfv(GL_LIGHT0, GL_AMBIENT, [0.3, 0.3, 0.3, 1.0])
+        glLightfv(GL_LIGHT0, GL_AMBIENT, [0.4, 0.4, 0.4, 1.0]) # 조금 더 밝게
         glLightfv(GL_LIGHT0, GL_DIFFUSE, [0.7, 0.7, 0.7, 1.0])
 
         # 캐싱된 Quadric 생성 (목표 지점 렌더링용)
         self.goal_quadric = gluNewQuadric()
         gluQuadricNormals(self.goal_quadric, GLU_SMOOTH)
+        
+        # 텍스처 로드
+        self._load_textures()
+
+    def _load_textures(self):
+        """텍스처 이미지 로드 및 OpenGL 텍스처 생성"""
+        import os
+        base_path = os.path.dirname(__file__)
+        assets_path = os.path.join(base_path, 'assets')
+        
+        self.texture_wall = self._create_texture(os.path.join(assets_path, 'wall_texture.png'))
+        self.texture_floor = self._create_texture(os.path.join(assets_path, 'floor_texture.png'))
+
+    def _create_texture(self, file_path):
+        """단일 텍스처 생성 헬퍼"""
+        if not os.path.exists(file_path):
+            print(f"Texture not found: {file_path}")
+            return None
+            
+        image = QImage(file_path)
+        if image.isNull():
+            print(f"Failed to load image: {file_path}")
+            return None
+            
+        # OpenGL 호환 포맷으로 변환
+        image = image.convertToFormat(QImage.Format_RGBA8888)
+        width = image.width()
+        height = image.height()
+        ptr = image.bits()
+        ptr.setsize(image.byteCount())
+        data = ptr.asstring()
+        
+        texture_id = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, texture_id)
+        
+        # 텍스처 파라미터 설정 (반복, 선형 필터링)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data)
+        
+        print(f"Texture loaded: {file_path} (ID: {texture_id})")
+        return texture_id
 
     def resizeGL(self, w, h):
         """뷰포트 크기 조정"""
@@ -139,40 +195,57 @@ class MiroOpenGLWidget(QOpenGLWidget):
                   0.0, 1.0, 0.0)
 
     def _draw_maze(self):
-        """VBO를 사용한 최적화된 미로 렌더링"""
-        if not self.vbo_initialized or self.index_count == 0:
+        """VBO를 사용한 텍스처 미로 렌더링"""
+        if not self.vbo_initialized:
             return
 
-        # 1. Solid 면 렌더링
-        glColor3f(0.6, 0.6, 0.6)  # 회색 벽
-
-        # 정점 VBO 바인딩
-        glBindBuffer(GL_ARRAY_BUFFER, self.vbo_vertices)
+        glEnable(GL_TEXTURE_2D)
         glEnableClientState(GL_VERTEX_ARRAY)
-        glVertexPointer(3, GL_FLOAT, 0, None)
-
-        # 법선 VBO 바인딩
-        glBindBuffer(GL_ARRAY_BUFFER, self.vbo_normals)
         glEnableClientState(GL_NORMAL_ARRAY)
-        glNormalPointer(GL_FLOAT, 0, None)
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY)
+        
+        glColor3f(1.0, 1.0, 1.0) # 텍스처 색상 혼합 방지 (흰색)
 
-        # Solid 면 그리기
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.vbo_indices)
-        glDrawElements(GL_QUADS, self.index_count, GL_UNSIGNED_INT, None)
+        # 1. 벽 렌더링
+        if self.wall_count > 0 and self.texture_wall:
+            glBindTexture(GL_TEXTURE_2D, self.texture_wall)
+            
+            glBindBuffer(GL_ARRAY_BUFFER, self.vbo_wall_vertices)
+            glVertexPointer(3, GL_FLOAT, 0, None)
+            
+            glBindBuffer(GL_ARRAY_BUFFER, self.vbo_wall_normals)
+            glNormalPointer(GL_FLOAT, 0, None)
+            
+            glBindBuffer(GL_ARRAY_BUFFER, self.vbo_wall_uvs)
+            glTexCoordPointer(2, GL_FLOAT, 0, None)
+            
+            glDrawArrays(GL_QUADS, 0, self.wall_count)
 
-        # 2. Wireframe 렌더링 (엣지 강조)
-        glDisable(GL_LIGHTING)
-        glColor3f(0.2, 0.2, 0.2)  # 어두운 엣지
-        glLineWidth(1.0)
+        # 2. 바닥 렌더링
+        if self.floor_count > 0 and self.texture_floor:
+            glBindTexture(GL_TEXTURE_2D, self.texture_floor)
+            
+            glBindBuffer(GL_ARRAY_BUFFER, self.vbo_floor_vertices)
+            glVertexPointer(3, GL_FLOAT, 0, None)
+            
+            glBindBuffer(GL_ARRAY_BUFFER, self.vbo_floor_normals)
+            glNormalPointer(GL_FLOAT, 0, None)
+            
+            glBindBuffer(GL_ARRAY_BUFFER, self.vbo_floor_uvs)
+            glTexCoordPointer(2, GL_FLOAT, 0, None)
+            
+            glDrawArrays(GL_QUADS, 0, self.floor_count)
 
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.vbo_wireframe_indices)
-        glDrawElements(GL_LINES, self.wireframe_index_count, GL_UNSIGNED_INT, None)
-
-        glEnable(GL_LIGHTING)
+        # 3. Wireframe (옵션, 현재 비활성화 - VBO 인덱스 불일치 문제 방지)
+        # if self.wireframe_index_count > 0:
+        #    glDisable(GL_TEXTURE_2D)
+        #    ...
 
         # 정리
         glDisableClientState(GL_VERTEX_ARRAY)
         glDisableClientState(GL_NORMAL_ARRAY)
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY)
+        glDisable(GL_TEXTURE_2D)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
 
@@ -211,7 +284,6 @@ class MiroOpenGLWidget(QOpenGLWidget):
                 for _ in range(num_paths):
                     num_pts = int(lines[idx].strip())
                     idx += 1
-                    # closed flag 체크
                     try:
                         p = lines[idx].strip().split()
                         if len(p) == 1 and p[0] in ['0', '1']:
@@ -229,27 +301,44 @@ class MiroOpenGLWidget(QOpenGLWidget):
                     self.maze_vertices.append(coords)
                     idx += 1
 
-                # 면 파싱
+                # 면 파싱 및 분류 (벽 vs 바닥)
                 num_f = int(lines[idx].strip())
                 idx += 1
-                self.maze_faces = []
+                self.maze_faces = [] # 원본 유지 (충돌 감지용)
+                wall_faces = []
+                floor_faces = []
+                
                 for _ in range(num_f):
                     parts = list(map(int, lines[idx].strip().split()))
-                    self.maze_faces.append(parts[1:])  # 첫 번째는 정점 수
+                    face_indices = parts[1:]
+                    self.maze_faces.append(face_indices)
                     idx += 1
+                    
+                    # 면 분류: 정점 중 하나라도 Y > 0.05 이면 벽으로 간주
+                    is_wall = False
+                    for v_idx in face_indices:
+                        if v_idx < len(self.maze_vertices):
+                            if self.maze_vertices[v_idx][1] > 0.05:
+                                is_wall = True
+                                break
+                    
+                    if is_wall:
+                        wall_faces.append(face_indices)
+                    else:
+                        floor_faces.append(face_indices)
 
-            # 법선 계산
+            # 법선 계산 (원본 면 기준)
             self._calculate_normals()
 
             # 미로 범위 계산 및 시작/목표 위치 설정
             self._calculate_maze_bounds()
 
-            # VBO 생성 (기존 VBO 정리 후)
+            # VBO 생성 (분류된 면 사용)
             self._cleanup_vbos()
-            self._create_vbos()
+            self._create_vbos(wall_faces, floor_faces)
 
             print(f"미로 로드 완료: {file_path}")
-            print(f"정점: {len(self.maze_vertices)}, 면: {len(self.maze_faces)}")
+            print(f"정점: {len(self.maze_vertices)}, 벽 면: {len(wall_faces)}, 바닥 면: {len(floor_faces)}")
             print(f"시작: {self.start_pos}, 목표: {self.goal_pos}")
 
             self.update()
@@ -292,91 +381,122 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
     def _cleanup_vbos(self):
         """VBO 리소스 정리"""
-        if self.vbo_vertices is not None:
-            glDeleteBuffers(1, [self.vbo_vertices])
-            self.vbo_vertices = None
-        if self.vbo_normals is not None:
-            glDeleteBuffers(1, [self.vbo_normals])
-            self.vbo_normals = None
-        if self.vbo_indices is not None:
-            glDeleteBuffers(1, [self.vbo_indices])
-            self.vbo_indices = None
-        if self.vbo_wireframe_indices is not None:
-            glDeleteBuffers(1, [self.vbo_wireframe_indices])
-            self.vbo_wireframe_indices = None
+        vbo_list = [
+            self.vbo_wall_vertices, self.vbo_wall_uvs, self.vbo_wall_normals,
+            self.vbo_floor_vertices, self.vbo_floor_uvs, self.vbo_floor_normals,
+            self.vbo_wireframe_indices
+        ]
+        
+        for vbo in vbo_list:
+            if vbo is not None:
+                glDeleteBuffers(1, [vbo])
+        
+        self.vbo_wall_vertices = None
+        self.vbo_wall_uvs = None
+        self.vbo_wall_normals = None
+        self.vbo_floor_vertices = None
+        self.vbo_floor_uvs = None
+        self.vbo_floor_normals = None
+        self.vbo_wireframe_indices = None
+        
         self.vbo_initialized = False
-        self.index_count = 0
+        self.wall_count = 0
+        self.floor_count = 0
         self.wireframe_index_count = 0
 
-    def _create_vbos(self):
-        """미로 지오메트리로부터 VBO 생성"""
-        if not self.maze_vertices or not self.maze_faces:
+    def _create_vbos(self, wall_faces, floor_faces):
+        """벽과 바닥을 분리하여 VBO 생성 (UV 포함)"""
+        if not self.maze_vertices:
             return
 
-        # 1. 정점 데이터 준비 (float32 배열)
-        vertex_data = np.array(self.maze_vertices, dtype=np.float32).flatten()
-
-        # 2. 법선 데이터 준비 (면 법선을 정점별로 확장)
-        # 각 면의 4개 정점에 동일한 법선 적용
-        normal_list = []
-        for i, face in enumerate(self.maze_faces):
-            if len(face) >= 4 and i < len(self.maze_normals):
-                normal = self.maze_normals[i]
+        def generate_geometry(faces, is_wall=True):
+            v_list = []
+            uv_list = []
+            n_list = []
+            
+            for i, face in enumerate(faces):
+                if len(face) < 4: continue
+                
+                # 면 정점 좌표
+                p0 = self.maze_vertices[face[0]]
+                p1 = self.maze_vertices[face[1]]
+                p2 = self.maze_vertices[face[2]]
+                p3 = self.maze_vertices[face[3]]
+                
+                # 법선 계산 (평면 노멀)
+                # v1-v0 x v2-v0
+                u = [p1[0]-p0[0], p1[1]-p0[1], p1[2]-p0[2]]
+                v = [p2[0]-p0[0], p2[1]-p0[1], p2[2]-p0[2]]
+                nx = u[1]*v[2] - u[2]*v[1]
+                ny = u[2]*v[0] - u[0]*v[2]
+                nz = u[0]*v[1] - u[1]*v[0]
+                length = math.sqrt(nx*nx + ny*ny + nz*nz)
+                if length > 0:
+                    normal = [nx/length, ny/length, nz/length]
+                else:
+                    normal = [0, 1, 0]
+                
+                # 정점 추가 (Explode)
+                v_list.extend(p0 + p1 + p2 + p3)
+                
+                # 법선 추가
                 for _ in range(4):
-                    normal_list.extend(normal)
+                    n_list.extend(normal)
+                
+                # UV 계산 (World Space 매핑)
+                if abs(normal[1]) > 0.9: # 바닥 또는 바닥면 (수평)
+                    # XZ 평면 매핑
+                    scale = 0.5 # 텍스처 스케일 
+                    uv_list.extend([p0[0]*scale, p0[2]*scale])
+                    uv_list.extend([p1[0]*scale, p1[2]*scale])
+                    uv_list.extend([p2[0]*scale, p2[2]*scale])
+                    uv_list.extend([p3[0]*scale, p3[2]*scale])
+                else: # 벽 (수직)
+                    # Box Mapping 비슷한 로직 - normal 방향에 따라 투영
+                    scale_x = 0.5
+                    scale_y = 0.5
+                    if abs(normal[0]) > 0.5: # YZ 평면
+                        uv_list.extend([p0[2]*scale_x, p0[1]*scale_y])
+                        uv_list.extend([p1[2]*scale_x, p1[1]*scale_y])
+                        uv_list.extend([p2[2]*scale_x, p2[1]*scale_y])
+                        uv_list.extend([p3[2]*scale_x, p3[1]*scale_y])
+                    else: # XY 평면 (Normal Z)
+                        uv_list.extend([p0[0]*scale_x, p0[1]*scale_y])
+                        uv_list.extend([p1[0]*scale_x, p1[1]*scale_y])
+                        uv_list.extend([p2[0]*scale_x, p2[1]*scale_y])
+                        uv_list.extend([p3[0]*scale_x, p3[1]*scale_y])
 
-        # 정점별 법선 배열 생성 (정점 수만큼)
-        vertex_normals = [[0.0, 1.0, 0.0] for _ in range(len(self.maze_vertices))]
-        for i, face in enumerate(self.maze_faces):
-            if len(face) >= 4 and i < len(self.maze_normals):
-                normal = self.maze_normals[i]
-                for idx in face[:4]:
-                    if idx < len(vertex_normals):
-                        vertex_normals[idx] = normal
-        normal_data = np.array(vertex_normals, dtype=np.float32).flatten()
+            return np.array(v_list, dtype=np.float32), np.array(uv_list, dtype=np.float32), np.array(n_list, dtype=np.float32)
 
-        # 3. GL_QUADS용 인덱스 데이터 준비
-        index_list = []
-        for face in self.maze_faces:
-            if len(face) >= 4:
-                index_list.extend(face[:4])
-        index_data = np.array(index_list, dtype=np.uint32)
-        self.index_count = len(index_data)
+        # 1. 벽 지오메트리 생성
+        wall_v, wall_uv, wall_n = generate_geometry(wall_faces, is_wall=True)
+        self.wall_count = len(wall_v) // 3
+        
+        # 2. 바닥 지오메트리 생성
+        floor_v, floor_uv, floor_n = generate_geometry(floor_faces, is_wall=False)
+        self.floor_count = len(floor_v) // 3
+        
+        # VBO 생성 및 데이터 업로드
+        def create_buffer(data):
+            vbo = glGenBuffers(1)
+            glBindBuffer(GL_ARRAY_BUFFER, vbo)
+            glBufferData(GL_ARRAY_BUFFER, data.nbytes, data, GL_STATIC_DRAW)
+            return vbo
 
-        # 4. Wireframe용 인덱스 데이터 준비 (GL_LINES)
-        wire_index_list = []
-        for face in self.maze_faces:
-            if len(face) >= 4:
-                wire_index_list.extend([
-                    face[0], face[1],
-                    face[1], face[2],
-                    face[2], face[3],
-                    face[3], face[0]
-                ])
-        wireframe_data = np.array(wire_index_list, dtype=np.uint32)
-        self.wireframe_index_count = len(wireframe_data)
+        if self.wall_count > 0:
+            self.vbo_wall_vertices = create_buffer(wall_v)
+            self.vbo_wall_uvs = create_buffer(wall_uv)
+            self.vbo_wall_normals = create_buffer(wall_n)
 
-        # 5. VBO 생성
-        self.vbo_vertices = glGenBuffers(1)
-        glBindBuffer(GL_ARRAY_BUFFER, self.vbo_vertices)
-        glBufferData(GL_ARRAY_BUFFER, vertex_data.nbytes, vertex_data, GL_STATIC_DRAW)
+        if self.floor_count > 0:
+            self.vbo_floor_vertices = create_buffer(floor_v)
+            self.vbo_floor_uvs = create_buffer(floor_uv)
+            self.vbo_floor_normals = create_buffer(floor_n)
 
-        self.vbo_normals = glGenBuffers(1)
-        glBindBuffer(GL_ARRAY_BUFFER, self.vbo_normals)
-        glBufferData(GL_ARRAY_BUFFER, normal_data.nbytes, normal_data, GL_STATIC_DRAW)
-
-        self.vbo_indices = glGenBuffers(1)
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.vbo_indices)
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_data.nbytes, index_data, GL_STATIC_DRAW)
-
-        self.vbo_wireframe_indices = glGenBuffers(1)
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.vbo_wireframe_indices)
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, wireframe_data.nbytes, wireframe_data, GL_STATIC_DRAW)
-
-        # 바인딩 해제
+        # Unbind
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
-
+        
         self.vbo_initialized = True
 
     def _calculate_maze_bounds(self):
@@ -659,3 +779,11 @@ class MiroOpenGLWidget(QOpenGLWidget):
         if self.goal_quadric:
             gluDeleteQuadric(self.goal_quadric)
             self.goal_quadric = None
+            
+        # 텍스처 삭제
+        if self.texture_wall:
+            glDeleteTextures([self.texture_wall])
+            self.texture_wall = None
+        if self.texture_floor:
+            glDeleteTextures([self.texture_floor])
+            self.texture_floor = None
