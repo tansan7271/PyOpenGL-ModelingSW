@@ -73,6 +73,10 @@ class MiroOpenGLWidget(QOpenGLWidget):
         self.mouse_captured = False
         self.last_mouse_pos = None
         self.current_theme = "810-Gwan" # 기본 테마
+        
+        # 게임플레이 설정 (기본값은 상수에서 가져옴)
+        self.move_speed = MOVE_SPEED
+        self.mouse_sensitivity = MOUSE_SENSITIVITY
 
         # 게임 루프 타이머
         self.game_timer = QTimer(self)
@@ -135,6 +139,14 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 캐싱된 Quadric (목표 지점 렌더링용)
         self.goal_quadric = None
 
+    def set_move_speed(self, speed):
+        """이동 속도 설정"""
+        self.move_speed = speed
+
+    def set_mouse_sensitivity(self, sensitivity):
+        """마우스 감도 설정"""
+        self.mouse_sensitivity = sensitivity
+    
     def set_gpu_acceleration(self, enabled):
         """GPU 가속 사용 여부 설정"""
         self.use_gpu_acceleration = enabled
@@ -882,17 +894,17 @@ class MiroOpenGLWidget(QOpenGLWidget):
         dx, dz = 0.0, 0.0
 
         if Qt.Key_W in self.keys_pressed:
-            dx += forward_x * MOVE_SPEED
-            dz += forward_z * MOVE_SPEED
+            dx += forward_x * self.move_speed
+            dz += forward_z * self.move_speed
         if Qt.Key_S in self.keys_pressed:
-            dx -= forward_x * MOVE_SPEED
-            dz -= forward_z * MOVE_SPEED
+            dx -= forward_x * self.move_speed
+            dz -= forward_z * self.move_speed
         if Qt.Key_A in self.keys_pressed:
-            dx += right_x * MOVE_SPEED
-            dz += right_z * MOVE_SPEED
+            dx += right_x * self.move_speed
+            dz += right_z * self.move_speed
         if Qt.Key_D in self.keys_pressed:
-            dx -= right_x * MOVE_SPEED
-            dz -= right_z * MOVE_SPEED
+            dx -= right_x * self.move_speed
+            dz -= right_z * self.move_speed
 
         # 충돌 감지 후 이동
         new_x = self.player_pos[0] + dx
@@ -980,8 +992,8 @@ class MiroOpenGLWidget(QOpenGLWidget):
         dy = event.y() - center.y()
 
         # 시점 회전 (좌우 반전 수정: -= 사용)
-        self.player_yaw -= dx * MOUSE_SENSITIVITY * 0.01
-        self.player_pitch -= dy * MOUSE_SENSITIVITY * 0.01
+        self.player_yaw -= dx * self.mouse_sensitivity * 0.01
+        self.player_pitch -= dy * self.mouse_sensitivity * 0.01
 
         # pitch 제한 (-89° ~ 89°)
         max_pitch = math.radians(89)

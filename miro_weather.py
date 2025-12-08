@@ -15,7 +15,7 @@ class WeatherSystem:
         self.extent = extent 
         
         # 파티클 크기 설정 (여기서 크기를 조절하세요)
-        self.snow_size = 10.0      # 눈송이 크기 (기본: 3.0 -> 5.0 -> 10.0)
+        self.snow_size = 7.0      # 눈송이 크기 (기본: 3.0 -> 5.0 -> 10.0)
         self.rain_width = 3.0     # 빗줄기 굵기 (기본: 1.0 -> 2.0 -> 3.0)
         self.rain_length = 0.8    # 빗줄기 길이 (기본: 0.5 -> 0.8)
         

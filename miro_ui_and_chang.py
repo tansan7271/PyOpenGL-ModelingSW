@@ -17,8 +17,9 @@ class MiroWindow(QMainWindow):
     미로 찾기 게임의 메인 UI 위젯입니다.
     타이틀 화면과 게임 화면을 전환하며 관리합니다.
     """
-    def __init__(self):
+    def __init__(self, sound_manager=None):
         super().__init__()
+        self.sound_manager = sound_manager
         self.game_timer = QTimer()
         self.game_timer.timeout.connect(self._update_timer)
         self.time_limit = 0
@@ -357,6 +358,10 @@ class MiroWindow(QMainWindow):
             self.stack.setCurrentWidget(self.story_widget)
             return
 
+        # 스테이지 BGM 재생
+        if self.sound_manager:
+            self.sound_manager.play_stage_bgm(mode)
+
         # Stage별 미로 파일 경로 설정
         maze_file = None
         if mode == "Stage 1":
@@ -486,12 +491,22 @@ class MiroWindow(QMainWindow):
         """게임 오버 (시간 초과) 처리"""
         self.game_timer.stop()
         self.gl_widget.stop_game()
+        
+        if self.sound_manager:
+            self.sound_manager.stop_stage_bgm() # BGM 중지
+            self.sound_manager.play_sfx("gameover")
+            
         QMessageBox.critical(self, "Game Over", "Time's up! You failed to escape.")
         self._return_to_title()
 
     def _on_game_won(self):
         """게임 클리어 처리"""
         self.game_timer.stop()
+        
+        if self.sound_manager:
+            self.sound_manager.stop_stage_bgm() # BGM 중지
+            self.sound_manager.play_sfx("clear")
+            
         QMessageBox.information(self, "Congratulations!", f"You escaped!\nTime: {self.lbl_timer.text()}")
         self._return_to_title()
 
@@ -501,5 +516,10 @@ class MiroWindow(QMainWindow):
         self.game_timer.stop()
         if hasattr(self, 'gl_widget') and self.gl_widget.game_active:
             self.gl_widget.stop_game()
+            
+        # 타이틀 BGM으로 복귀
+        if self.sound_manager:
+            self.sound_manager.play_title_bgm()
+            
         self.stack.setCurrentIndex(0)
 

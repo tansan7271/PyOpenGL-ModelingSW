@@ -1,7 +1,7 @@
 import sys
 import os
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-                             QStackedWidget, QListWidget, QListWidgetItem, QGroupBox, QCheckBox, QLabel)
+                             QStackedWidget, QListWidget, QListWidgetItem, QGroupBox, QCheckBox, QLabel, QSlider)
 from PyQt5.QtCore import Qt, QSize, QEvent, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QPalette
 from PyQt5.QtSvg import QSvgRenderer
@@ -9,11 +9,16 @@ from PyQt5.QtSvg import QSvgRenderer
 # 서브 애플리케이션 호출~!
 from modeler_ui_and_chang import MainWindow as ModelerWindow
 from miro_ui_and_chang import MiroWindow
+from miro_sound import SoundManager
 
 
 class SettingsPage(QWidget):
     """전역 설정 페이지"""
     gpuAccelerationChanged = pyqtSignal(bool)
+    gpuAccelerationChanged = pyqtSignal(bool)
+    volumeChanged = pyqtSignal(int)
+    moveSpeedChanged = pyqtSignal(int) # 0 ~ 100% -> scale to 0.04 ~ 0.16
+    mouseSensitivityChanged = pyqtSignal(int) # 0 ~ 100% -> scale to 0.05 ~ 0.30
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -39,11 +44,86 @@ class SettingsPage(QWidget):
         graphics_group.setLayout(graphics_layout)
         layout.addWidget(graphics_group)
 
+        # 오디오 설정 그룹
+        audio_group = QGroupBox("Audio")
+        audio_layout = QVBoxLayout()
+        
+        # 볼륨 슬라이더
+        volume_label_layout = QHBoxLayout()
+        volume_label_layout.addWidget(QLabel("Master Volume:"))
+        self.lbl_volume_value = QLabel("100%")
+        volume_label_layout.addWidget(self.lbl_volume_value)
+        volume_label_layout.addStretch()
+        audio_layout.addLayout(volume_label_layout)
+
+        self.slider_volume = QSlider(Qt.Horizontal)
+        self.slider_volume.setRange(0, 100)
+        self.slider_volume.setValue(100)
+        self.slider_volume.setTickPosition(QSlider.TicksBelow)
+        self.slider_volume.setTickInterval(10)
+        self.slider_volume.valueChanged.connect(self._on_volume_changed)
+        audio_layout.addWidget(self.slider_volume)
+        
+        audio_group.setLayout(audio_layout)
+        audio_group.setLayout(audio_layout)
+        layout.addWidget(audio_group)
+
+        # 게임플레이 설정 그룹
+        gameplay_group = QGroupBox("Controls")
+        gameplay_layout = QVBoxLayout()
+
+        # 1. 이동 속도 (50% ~ 200%)
+        speed_label_layout = QHBoxLayout()
+        speed_label_layout.addWidget(QLabel("Movement Speed:"))
+        self.lbl_speed_value = QLabel("100%")
+        speed_label_layout.addWidget(self.lbl_speed_value)
+        speed_label_layout.addStretch()
+        gameplay_layout.addLayout(speed_label_layout)
+        
+        self.slider_speed = QSlider(Qt.Horizontal)
+        self.slider_speed.setRange(50, 200) # 퍼센트
+        self.slider_speed.setValue(100)
+        self.slider_speed.setTickPosition(QSlider.TicksBelow)
+        self.slider_speed.setTickInterval(25)
+        self.slider_speed.valueChanged.connect(self._on_speed_changed)
+        gameplay_layout.addWidget(self.slider_speed)
+
+        # 2. 마우스 감도 (50% ~ 200%)
+        sens_label_layout = QHBoxLayout()
+        sens_label_layout.addWidget(QLabel("Mouse Sensitivity:"))
+        self.lbl_sens_value = QLabel("100%")
+        sens_label_layout.addWidget(self.lbl_sens_value)
+        sens_label_layout.addStretch()
+        gameplay_layout.addLayout(sens_label_layout)
+        
+        self.slider_sens = QSlider(Qt.Horizontal)
+        self.slider_sens.setRange(50, 200) # 퍼센트
+        self.slider_sens.setValue(100)
+        self.slider_sens.setTickPosition(QSlider.TicksBelow)
+        self.slider_sens.setTickInterval(25)
+        self.slider_sens.valueChanged.connect(self._on_sens_changed)
+        gameplay_layout.addWidget(self.slider_sens)
+
+        gameplay_group.setLayout(gameplay_layout)
+        layout.addWidget(gameplay_group)
+
         layout.addStretch()
 
     def _on_gpu_accel_changed(self, state):
         enabled = (state == Qt.Checked)
         self.gpuAccelerationChanged.emit(enabled)
+
+    def _on_volume_changed(self, value):
+        self.lbl_volume_value.setText(f"{value}%")
+        self.volumeChanged.emit(value)
+        
+    def _on_speed_changed(self, value):
+        self.lbl_speed_value.setText(f"{value}%")
+        self.moveSpeedChanged.emit(value)
+        
+    def _on_sens_changed(self, value):
+        self.lbl_sens_value.setText(f"{value}%")
+        self.mouseSensitivityChanged.emit(value)
 
 
 class MainContainer(QMainWindow):
@@ -105,11 +185,18 @@ class MainContainer(QMainWindow):
         self.stack = QStackedWidget()
         main_layout.addWidget(self.stack)
         
+        # 사운드 매니저 초기화
+        self.sound_manager = SoundManager(self)
+        self.sound_manager.load_title_bgm("bgm_title_clean.mp3", "bgm_title_muffled.mp3")
+        self.sound_manager.play_title_bgm()
+
         # 서브 애플리케이션 호출
         self.modeler = ModelerWindow()
         self.modeler.setWindowFlags(Qt.Widget)
         
-        self.maze = MiroWindow()
+        self.modeler.setWindowFlags(Qt.Widget)
+        
+        self.maze = MiroWindow(self.sound_manager)
         
         self.stack.addWidget(self.modeler)
         self.stack.addWidget(self.maze)
@@ -121,6 +208,16 @@ class MainContainer(QMainWindow):
         # 연결
         self.menu_list.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.settings_page.gpuAccelerationChanged.connect(self._on_gpu_accel_changed)
+        self.settings_page.volumeChanged.connect(self.sound_manager.set_master_volume)
+        
+        # 게임플레이 설정 연결 (퍼센트 -> 실제 값 변환)
+        # 기본값: Speed 0.08, Sensitivity 0.15
+        self.settings_page.moveSpeedChanged.connect(
+            lambda v: self.maze.gl_widget.set_move_speed((v / 100.0) * 0.08)
+        )
+        self.settings_page.mouseSensitivityChanged.connect(
+            lambda v: self.maze.gl_widget.set_mouse_sensitivity((v / 100.0) * 0.15)
+        )
 
         # 초기 화면 설정 (0: Modeler, 1: Maze Game, 2: Settings)
         self.stack.setCurrentIndex(1)
@@ -128,6 +225,20 @@ class MainContainer(QMainWindow):
 
         # 초기 스타일 및 아이콘 적용
         self._update_styles()
+
+        # 탭 전환 시 사운드 Muffled 효과 적용
+        self.stack.currentChanged.connect(self._on_stack_changed)
+        
+        # 초기 상태에 따른 사운드 설정 (초기 인덱스 1: Maze -> Clean)
+        self._on_stack_changed(1)
+
+    def _on_stack_changed(self, index):
+        """탭 변경 시 사운드 효과 제어"""
+        # 1번 탭(Maze Game)일 때만 선명하게, 나머지는 먹먹하게
+        if index == 1:
+            self.sound_manager.set_muffled(False)
+        else:
+            self.sound_manager.set_muffled(True)
 
     def changeEvent(self, event):
         """
