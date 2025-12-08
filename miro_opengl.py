@@ -96,6 +96,11 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # VBO 메타데이터
         self.vbo_initialized = False
 
+        # 환경 설정 (안개)
+        self.fog_enabled = True
+        self.fog_density = 0.5 # 안개 밀도 (값이 클수록 안개가 짙어지고 가까이서 시작됨)
+        self.fog_color = [0.1, 0.1, 0.15, 1.0]
+
         # 캐싱된 Quadric
         self.goal_quadric = None
 
@@ -122,6 +127,18 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 캐싱된 Quadric (목표 지점 렌더링용)
         self.goal_quadric = None
 
+    def set_fog(self, enabled):
+        """안개 켜기/끄기"""
+        self.fog_enabled = enabled
+        if self.isValid():
+            self.makeCurrent()
+            if enabled:
+                glEnable(GL_FOG)
+            else:
+                glDisable(GL_FOG)
+            self.doneCurrent()
+            self.update()
+
     def initializeGL(self):
         """OpenGL 초기화"""
         glClearColor(0.1, 0.1, 0.15, 1.0)  # 어두운 배경
@@ -132,6 +149,17 @@ class MiroOpenGLWidget(QOpenGLWidget):
         glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
         
         glEnable(GL_TEXTURE_2D) # 텍스처 활성화
+
+        # 안개 설정
+        glFogi(GL_FOG_MODE, GL_EXP2) # 거리에 따라 지수적으로 진해짐 (자연스러움)
+        glFogfv(GL_FOG_COLOR, self.fog_color)
+        glFogf(GL_FOG_DENSITY, self.fog_density)
+        glHint(GL_FOG_HINT, GL_NICEST)
+        
+        if self.fog_enabled:
+            glEnable(GL_FOG)
+        else:
+            glDisable(GL_FOG)
 
         # 조명 설정
         glLightfv(GL_LIGHT0, GL_POSITION, [0.0, 10.0, 0.0, 1.0])
@@ -229,6 +257,12 @@ class MiroOpenGLWidget(QOpenGLWidget):
         """렌더링"""
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glLoadIdentity()
+        
+        # 안개 상태 확인 (initializeGL에서 설정했더라도 확실하게)
+        if self.fog_enabled:
+            glEnable(GL_FOG)
+        else:
+            glDisable(GL_FOG)
 
         # 1인칭 카메라 설정
         self._setup_camera()

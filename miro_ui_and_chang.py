@@ -62,7 +62,7 @@ class MiroWindow(QMainWindow):
 
     def _create_toolbar(self):
         """툴바 설정 (뷰 모드 드롭다운, 미니맵 토글)"""
-        from PyQt5.QtWidgets import QToolBar, QToolButton, QMenu, QAction, QActionGroup
+        from PyQt5.QtWidgets import QToolBar, QAction
         
         toolbar = QToolBar("Maze Toolbar")
         # toolbar.setMovable(True) # 기본값이 True
@@ -83,7 +83,7 @@ class MiroWindow(QMainWindow):
 
     def _setup_title_page(self):
         """타이틀 화면 UI 구성"""
-        from PyQt5.QtWidgets import QFrame
+        from PyQt5.QtWidgets import QFrame, QDoubleSpinBox
         
         layout = QVBoxLayout(self.page_title)
         layout.setAlignment(Qt.AlignCenter)
@@ -209,7 +209,6 @@ class MiroWindow(QMainWindow):
         # 벽 두께 설정
         thickness_layout = QHBoxLayout()
         thickness_layout.addWidget(QLabel("Wall Thickness:"))
-        from PyQt5.QtWidgets import QDoubleSpinBox # Import added
         self.spin_thickness = QDoubleSpinBox()
         self.spin_thickness.setRange(0.1, 1.0)
         self.spin_thickness.setSingleStep(0.1)
@@ -261,6 +260,7 @@ class MiroWindow(QMainWindow):
         # 3. 안개
         self.check_fog = QCheckBox("Fog")
         self.check_fog.setChecked(True)
+        self.check_fog.stateChanged.connect(self._on_fog_changed)
         env_layout.addWidget(self.check_fog)
         
         env_layout.addStretch() # 우측 여백
@@ -268,12 +268,20 @@ class MiroWindow(QMainWindow):
         
         # 초기 상태 업데이트
         self._on_thickness_changed(self.spin_thickness.value())
+        self._on_fog_changed(self.check_fog.isChecked())
 
         # 크레딧 (하단)
         lbl_credits = QLabel("컴퓨터그래픽스 02분반 ∙ 06조 ∙ 김도균(20225525), 오성진(20225534), 권민준(20231389)")
         lbl_credits.setAlignment(Qt.AlignCenter)
         lbl_credits.setStyleSheet("font-weight: bold; color: #666; font-size: 14px; margin-bottom: 20px;")
         layout.addWidget(lbl_credits)
+
+    def _on_fog_changed(self, state):
+        """안개 설정 변경"""
+        # state는 int(0/2) 또는 bool일 수 있음
+        is_checked = (state == Qt.Checked) if isinstance(state, int) else state
+        if hasattr(self, 'gl_widget'):
+            self.gl_widget.set_fog(is_checked)
 
     def _on_theme_changed(self, theme_text):
         """테마 변경 핸들러"""
@@ -345,17 +353,23 @@ class MiroWindow(QMainWindow):
         maze_file = None
         if mode == "Stage 1":
             self.combo_theme.setCurrentText("810-Gwan") # 테마 자동 설정
+            self.gl_widget.set_fog(False) # 안개 끄기
             maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_01.dat')
             self._start_timer(mode, 60) # 60초 제한
         elif mode == "Stage 2":
             self.combo_theme.setCurrentText("Inside Campus") # 테마 자동 설정
+            self.gl_widget.set_fog(True) # 안개 켜기 (기믹)
             maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_02.dat')
             self._start_timer(mode, 90) # 90초 제한
         elif mode == "Stage 3":
             self.combo_theme.setCurrentText("Path to the Main Gate") # 테마 자동 설정
+            self.gl_widget.set_fog(False) # 안개 끄기
             maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_03.dat')
             self._start_timer(mode, 120) # 120초 제한
         elif mode == "Custom":
+            # 커스텀 모드 설정값 적용
+            self.gl_widget.set_fog(self.check_fog.isChecked())
+
             # 커스텀 모드: 동적으로 미로 생성
             try:
                 import maze_generator
