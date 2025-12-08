@@ -914,9 +914,12 @@ class MiroOpenGLWidget(QOpenGLWidget):
                 gx = int((check_x - self.grid_min_x) / self.grid_scale)
                 gz = int((check_z - self.grid_min_z) / self.grid_scale)
 
-                if 0 <= gz < len(self.maze_grid) and 0 <= gx < len(self.maze_grid[0]):
-                    if self.maze_grid[gz][gx] == 1:
-                        return True
+                # 범위 밖 = 충돌 (미로 밖으로 나갈 수 없음)
+                if not (0 <= gz < len(self.maze_grid) and 0 <= gx < len(self.maze_grid[0])):
+                    return True
+                # 벽 충돌
+                if self.maze_grid[gz][gx] == 1:
+                    return True
 
         return False
 
