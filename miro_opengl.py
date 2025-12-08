@@ -351,7 +351,8 @@ class MiroOpenGLWidget(QOpenGLWidget):
     def _draw_goal(self):
         """목표 지점 표시 (빛나는 기둥) - 캐싱된 Quadric 사용"""
         glPushMatrix()
-        glTranslatef(self.goal_pos[0], 0.5, self.goal_pos[1])
+        glTranslatef(self.goal_pos[0], 0.0, self.goal_pos[1])
+        glRotatef(-90, 1, 0, 0)  # X축 기준 -90도 회전 (Z축→Y축 방향으로)
 
         # 반투명 효과를 위해 조명 끄기
         glDisable(GL_LIGHTING)
@@ -489,40 +490,69 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
     def _cleanup_vbos(self):
         """VBO 리소스 정리 (배치 포함)"""
+        # OpenGL 컨텍스트 유효성 검사
+        if not self.isValid():
+            # Python 측 참조만 정리
+            self.wall_batches = []
+            self.floor_batches = []
+            self.vbo_wireframe_indices = None
+            self.vbo_initialized = False
+            self.wireframe_index_count = 0
+            return
+
+        # GL 호출 전 컨텍스트 활성화
+        self.makeCurrent()
+
         # 배치가 생성된 경우 리스트 순회
         all_batches = self.wall_batches + self.floor_batches
         for batch in all_batches:
-             buffers = [batch['vbo_vertices'], batch['vbo_uvs'], batch['vbo_normals']]
-             glDeleteBuffers(len(buffers), buffers)
-             
+            buffers = [batch['vbo_vertices'], batch['vbo_uvs'], batch['vbo_normals']]
+            if glDeleteBuffers:  # 추가 안전 검사
+                glDeleteBuffers(len(buffers), buffers)
+
         if self.vbo_wireframe_indices:
-            glDeleteBuffers(1, [self.vbo_wireframe_indices])
+            if glDeleteBuffers:
+                glDeleteBuffers(1, [self.vbo_wireframe_indices])
 
         self.wall_batches = []
         self.floor_batches = []
         self.vbo_wireframe_indices = None
-        
+
         self.vbo_initialized = False
         self.wireframe_index_count = 0
 
+        self.doneCurrent()
+
     # ... _calculate_maze_bounds ...
-    
+
     # ... (other methods) ...
 
     def cleanup_gl_resources(self):
         """OpenGL 리소스 정리 (위젯 소멸 시 호출)"""
         self._cleanup_vbos()
+
+        # OpenGL 컨텍스트 유효성 검사
+        if not self.isValid():
+            self.goal_quadric = None
+            self.theme_textures['walls'] = []
+            self.theme_textures['floors'] = []
+            return
+
+        self.makeCurrent()
+
         if self.goal_quadric:
             gluDeleteQuadric(self.goal_quadric)
             self.goal_quadric = None
-            
+
         # 텍스처 삭제 (리스트 순회)
         all_textures = self.theme_textures['walls'] + self.theme_textures['floors']
-        if all_textures:
+        if all_textures and glDeleteTextures:
             glDeleteTextures(len(all_textures), all_textures)
-        
+
         self.theme_textures['walls'] = []
         self.theme_textures['floors'] = []
+
+        self.doneCurrent()
 
     def _create_vbos(self, wall_faces, floor_faces):
         """벽과 바닥을 텍스처별로 그룹화하여 VBO 배치 생성"""
@@ -733,22 +763,45 @@ class MiroOpenGLWidget(QOpenGLWidget):
         if not self.maze_grid or not self.maze_grid[0]:
             return [0.0, 0.0]
 
-        # 상단(near_top=True)이면 z 인덱스 0부터, 하단이면 끝에서부터 탐색
-        z_range = range(len(self.maze_grid)) if near_top else range(len(self.maze_grid) - 1, -1, -1)
-        # 출구는 오른쪽에서 왼쪽으로 탐색해서 만들어지므로, 목표점도 오른쪽부터 탐색
-        x_range = range(len(self.maze_grid[0])) if near_top else range(len(self.maze_grid[0]) - 1, -1, -1)
+        grid_height = len(self.maze_grid)
+        grid_width = len(self.maze_grid[0])
 
-        for gz in z_range:
-            for gx in x_range:
-                if self.maze_grid[gz][gx] == 0:  # 통로 셀
-                    # 셀 중앙 좌표 계산
-                    x = self.grid_min_x + (gx + 0.5) * self.grid_scale
-                    z = self.grid_min_z + (gz + 0.5) * self.grid_scale
-                    return [x, z]
+        # 패딩을 제외한 실제 미로 범위 (패딩은 +2이므로 마지막 2칸 제외)
+        max_gz = grid_height - 3
+        max_gx = grid_width - 3
 
-        # 통로를 찾지 못하면 중앙 반환
-        center_x = self.grid_min_x + (len(self.maze_grid[0]) / 2) * self.grid_scale
-        center_z = self.grid_min_z + (len(self.maze_grid) / 2) * self.grid_scale
+        def is_valid_passage(gz, gx):
+            """통로이면서 인접 셀에 벽이 있는지 확인 (미로 내부 판별)"""
+            if self.maze_grid[gz][gx] != 0:
+                return False
+            # 인접 4방향 중 하나라도 벽이 있으면 미로 내부
+            for dz, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                nz, nx = gz + dz, gx + dx
+                if 0 <= nz < grid_height and 0 <= nx < grid_width:
+                    if self.maze_grid[nz][nx] == 1:
+                        return True
+            return False
+
+        if near_top:
+            # 시작점: 상단에서 첫 번째 유효 통로 찾기 (패딩 제외)
+            for gz in range(max_gz + 1):
+                for gx in range(max_gx + 1):
+                    if is_valid_passage(gz, gx):
+                        x = self.grid_min_x + (gx + 0.5) * self.grid_scale
+                        z = self.grid_min_z + (gz + 0.5) * self.grid_scale
+                        return [x, z]
+        else:
+            # 목표점: 하단에서 유효 통로 찾기 (패딩 제외)
+            for gz in range(max_gz, -1, -1):
+                for gx in range(max_gx, -1, -1):
+                    if is_valid_passage(gz, gx):
+                        x = self.grid_min_x + (gx + 0.5) * self.grid_scale
+                        z = self.grid_min_z + (gz + 0.5) * self.grid_scale
+                        return [x, z]
+
+        # 유효한 통로를 찾지 못하면 중앙 반환
+        center_x = self.grid_min_x + (grid_width / 2) * self.grid_scale
+        center_z = self.grid_min_z + (grid_height / 2) * self.grid_scale
         return [center_x, center_z]
 
     def start_game(self):
@@ -946,18 +999,4 @@ class MiroOpenGLWidget(QOpenGLWidget):
             self.setCursor(Qt.BlankCursor)
             self.setFocus()
 
-    def cleanup_gl_resources(self):
-        """OpenGL 리소스 정리 (위젯 소멸 시 호출)"""
-        self._cleanup_vbos()
-        if self.goal_quadric:
-            gluDeleteQuadric(self.goal_quadric)
-            self.goal_quadric = None
-            
-        # 텍스처 삭제 (리스트 순회)
-        all_textures = self.theme_textures['walls'] + self.theme_textures['floors']
-        if all_textures:
-            glDeleteTextures(len(all_textures), all_textures)
-        
-        self.theme_textures['walls'] = []
-        self.theme_textures['floors'] = []
 
