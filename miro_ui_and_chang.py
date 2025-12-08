@@ -393,15 +393,19 @@ class MiroWindow(QMainWindow):
             # 커스텀 모드: 동적으로 미로 생성
             try:
                 import maze_generator
-                
+
                 width = self.spin_width.value()
                 height = self.spin_height.value()
                 wall_thickness = self.spin_thickness.value()
                 wall_height = self.spin_wall_height.value()
-                
+
+                # 높이 변화 설정 (두께가 1.0일 때만 유효)
+                enable_height_var = (self.check_height_variation.isChecked() and
+                                     abs(wall_thickness - 1.0) < 0.001)
+
                 # 미로 생성
-                print(f"Generating Custom Maze ({width}x{height})...")
-                maze = maze_generator.Maze(width, height)
+                print(f"Generating Custom Maze ({width}x{height}), Height Variation: {enable_height_var}...")
+                maze = maze_generator.Maze(width, height, enable_height_variation=enable_height_var)
                 maze.generate()
                 
                 # 저장 경로 설정

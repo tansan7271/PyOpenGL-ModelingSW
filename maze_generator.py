@@ -4,7 +4,7 @@ class Maze:
     """
     무작위 깊이 우선 탐색(Randomized DFS) 알고리즘을 사용하여 미로를 생성하는 클래스.
     """
-    def __init__(self, width, height, wall_thickness=1.0, wall_height=1.0):
+    def __init__(self, width, height, wall_thickness=1.0, wall_height=1.0, enable_height_variation=False):
         """
         미로 객체를 초기화합니다.
 
@@ -13,6 +13,7 @@ class Maze:
             height (int): 미로의 세로 크기.
             wall_thickness (float): 벽 두께 (0.1 ~ 1.0, 기본값 1.0).
             wall_height (float): 벽 높이 (기본값 1.0).
+            enable_height_variation (bool): 바닥 높이 변화 활성화 여부.
         """
         # 미로의 벽과 길을 명확히 구분하기 위해 크기를 홀수로 조정합니다.
         self.width = width if width % 2 != 0 else width + 1
@@ -20,6 +21,9 @@ class Maze:
         # 벽 두께 및 높이 설정
         self.wall_thickness = max(0.1, min(1.0, wall_thickness))
         self.wall_height = max(0.1, wall_height)
+        # 바닥 높이 변화 설정
+        self.enable_height_variation = enable_height_variation
+        self.floor_heights = {}  # (x, y) -> height (float)
         # 모든 칸을 벽(1)으로 채운 그리드를 생성합니다.
         self.grid = [[1 for _ in range(self.width)] for _ in range(self.height)]
 
@@ -57,6 +61,20 @@ class Maze:
         
         # 입구와 출구를 생성합니다.
         self._create_entry_exit()
+
+        # 바닥 높이 변화 생성
+        if self.enable_height_variation:
+            self._generate_floor_heights()
+
+    def _generate_floor_heights(self):
+        """통로 셀에 무작위 바닥 높이를 생성합니다."""
+        MIN_HEIGHT = 0.0
+        MAX_HEIGHT = 0.5
+
+        for y in range(self.height):
+            for x in range(self.width):
+                if self.grid[y][x] == 0:  # 통로 셀만
+                    self.floor_heights[(x, y)] = round(random.uniform(MIN_HEIGHT, MAX_HEIGHT), 2)
 
     def _get_unvisited_neighbors(self, x, y):
         """
@@ -150,18 +168,19 @@ class Maze:
             faces.append((base+3, base+0, base+4, base+7))  # Left
             vertex_count += 8
 
-        def add_floor_box(x0, x1, z0, z1):
-            """바닥 박스를 vertices와 faces에 추가 (y=-floor_thickness ~ 0)"""
+        def add_floor_box(x0, x1, z0, z1, floor_top_y=0.0):
+            """바닥 박스를 vertices와 faces에 추가 (아래면 고정, 윗면만 높아짐)"""
             nonlocal vertex_count
-            # Bottom (y=-floor_thickness)
+            floor_bottom_y = -floor_thickness  # 아래면 항상 고정
+            # Bottom (y=-floor_thickness, 고정)
             v_bottom = [
-                (x0, -floor_thickness, z0), (x1, -floor_thickness, z0),
-                (x1, -floor_thickness, z1), (x0, -floor_thickness, z1)
+                (x0, floor_bottom_y, z0), (x1, floor_bottom_y, z0),
+                (x1, floor_bottom_y, z1), (x0, floor_bottom_y, z1)
             ]
-            # Top (y=0)
+            # Top (y=floor_top_y, 가변 - 높이 변화 시 두께가 증가)
             v_top = [
-                (x0, 0, z0), (x1, 0, z0),
-                (x1, 0, z1), (x0, 0, z1)
+                (x0, floor_top_y, z0), (x1, floor_top_y, z0),
+                (x1, floor_top_y, z1), (x0, floor_top_y, z1)
             ]
             vertices.extend(v_bottom + v_top)
 
@@ -180,8 +199,14 @@ class Maze:
                 bx = x * scale + offset_x
                 bz = y * scale + offset_z
 
-                # 모든 셀에 바닥 생성 (벽/통로 무관)
-                add_floor_box(bx, bx + scale, bz, bz + scale)
+                # 바닥 높이 결정 (통로 셀만 높이 변화, 벽 셀은 Y=0 유지)
+                if self.grid[y][x] == 0 and self.enable_height_variation:
+                    floor_top_y = self.floor_heights.get((x, y), 0.0)
+                else:
+                    floor_top_y = 0.0
+
+                # 모든 셀에 바닥 생성
+                add_floor_box(bx, bx + scale, bz, bz + scale, floor_top_y)
 
                 if self.grid[y][x] == 1:  # 벽인 경우
                     # 중앙 박스 좌표
@@ -222,23 +247,37 @@ class Maze:
 
         try:
             with open(filename, 'w') as f:
-                # 1. 설정 (v6 포맷)
-                # v6 {slices} {axis} {render_mode} {r} {g} {b} {mode} {sweep_len} {twist} {caps}
-                f.write("v6 30 Y 2 0.6 0.6 0.6 0 0 0 0\n")
+                # 1. 설정 (v7 포맷 - 높이 변화 플래그 추가)
+                # v7 {slices} {axis} {render_mode} {r} {g} {b} {mode} {sweep_len} {twist} {caps} {height_var}
+                height_var_flag = 1 if self.enable_height_variation else 0
+                f.write(f"v7 30 Y 2 0.6 0.6 0.6 0 0 0 0 {height_var_flag}\n")
 
                 # 2. 경로 데이터 (0개 - SOR 생성 방지)
                 f.write("0\n")
-                
+
                 # 3. 3D 정점 데이터
                 f.write(f"{len(vertices)}\n")
                 for v in vertices:
                     f.write(f"{v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
-                
+
                 # 4. 면 데이터
                 f.write(f"{len(faces)}\n")
                 for face in faces:
                     f.write(f"4 {face[0]} {face[1]} {face[2]} {face[3]}\n")
-                    
+
+                # 5. 바닥 높이 데이터 (v7 전용)
+                if self.enable_height_variation and self.floor_heights:
+                    f.write(f"{len(self.floor_heights)}\n")
+                    for (gx, gz), h in self.floor_heights.items():
+                        f.write(f"{gx} {gz} {h:.2f}\n")
+                else:
+                    f.write("0\n")
+
+                # 6. 미로 그리드 데이터 (v7 전용)
+                f.write(f"{self.width} {self.height}\n")
+                for row in self.grid:
+                    f.write("".join(str(cell) for cell in row) + "\n")
+
             print(f"미로가 성공적으로 내보내졌습니다: {filename}")
         except Exception as e:
             print(f"내보내기 실패: {e}")
@@ -291,6 +330,15 @@ def main():
             # 벽 높이 입력 (선택적, 기본값 1.0)
             height_input = input("벽 높이를 입력하세요 (기본값 1.0): ").strip()
             wall_height = float(height_input) if height_input else 1.0
+
+            # 바닥 높이 변화 옵션
+            height_var_input = input("바닥 높이 변화를 활성화하시겠습니까? (y/n, 기본값 n): ").strip().lower()
+            if height_var_input == 'y':
+                current_maze.enable_height_variation = True
+                current_maze._generate_floor_heights()
+            else:
+                current_maze.enable_height_variation = False
+                current_maze.floor_heights = {}
 
             # 파일 이름 입력
             filename = input("저장할 파일 이름을 입력하세요 (예: maze.dat): ")
