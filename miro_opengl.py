@@ -447,13 +447,16 @@ class MiroOpenGLWidget(QOpenGLWidget):
                     self.maze_faces.append(face_indices)
                     idx += 1
 
-                    # 면 분류: 정점 중 하나라도 Y > 0.05 이면 벽으로 간주
-                    is_wall = False
+                    # 면 분류: 정점의 최대 Y 좌표로 분류
+                    # - 바닥 면(윗면+옆면): 최대 Y가 낮음 (높이 변화 최대 0.5)
+                    # - 벽 면: 최대 Y가 높음 (벽 높이 1.0 이상)
+                    max_y = 0.0
                     for v_idx in face_indices:
                         if v_idx < len(self.maze_vertices):
-                            if self.maze_vertices[v_idx][1] > 0.05:
-                                is_wall = True
-                                break
+                            max_y = max(max_y, self.maze_vertices[v_idx][1])
+
+                    # 최대 Y가 0.6 미만이면 바닥 (바닥 높이 변화 범위: 0.0~0.5)
+                    is_wall = max_y >= 0.6
 
                     if is_wall:
                         wall_faces.append(face_indices)
@@ -471,6 +474,14 @@ class MiroOpenGLWidget(QOpenGLWidget):
                             gx, gz, h = int(h_parts[0]), int(h_parts[1]), float(h_parts[2])
                             self.floor_height_map[(gx, gz)] = h
                             idx += 1
+
+                # 높이 맵 통계 출력
+                if self.floor_height_map:
+                    heights = list(self.floor_height_map.values())
+                    print(f"[HEIGHT_MAP] count={len(heights)}, min={min(heights):.2f}, max={max(heights):.2f}")
+                    # 높이가 다른 타일 몇 개 출력
+                    high_tiles = [(k, v) for k, v in self.floor_height_map.items() if v > 0.1]
+                    print(f"[HEIGHT_MAP] high tiles (h>0.1): {len(high_tiles)} tiles, samples: {high_tiles[:5]}")
 
                 # 미로 그리드 데이터 파싱 (v7 전용)
                 self.original_maze_grid = None
@@ -779,10 +790,21 @@ class MiroOpenGLWidget(QOpenGLWidget):
         self.goal_pos = self._find_safe_spawn(near_top=False)
 
     def _build_collision_grid(self, min_x, max_x, min_z, max_z):
-        """충돌 감지용 그리드 구축 (정점 기반)"""
-        # 그리드 해상도: 1.0 단위
-        grid_scale = 1.0
+        """충돌 감지용 그리드 구축"""
+        # 원본 미로 그리드가 있으면 직접 사용 (가장 정확함)
+        if self.original_maze_grid and self.original_maze_width and self.original_maze_height:
+            # 원본 그리드의 오프셋 계산 (maze_generator.py와 동일)
+            self.grid_min_x = -self.original_maze_width / 2.0
+            self.grid_min_z = -self.original_maze_height / 2.0
+            self.grid_scale = 1.0
+            self.maze_grid = self.original_maze_grid
+            self.maze_width = self.original_maze_width
+            self.maze_height = self.original_maze_height
+            print(f"[COLLISION] Using original_maze_grid: {self.maze_width}x{self.maze_height}")
+            return
 
+        # 원본 그리드가 없으면 면 기반으로 추정 (폴백)
+        grid_scale = 1.0
         self.grid_min_x = min_x
         self.grid_min_z = min_z
         self.grid_scale = grid_scale
@@ -794,31 +816,26 @@ class MiroOpenGLWidget(QOpenGLWidget):
         self.maze_grid = [[0 for _ in range(grid_width)] for _ in range(grid_height)]
 
         # 벽의 윗면(Top Face)을 찾아 해당 셀을 벽으로 표시 (1)
-        # 벽은 바닥(y=0)에서 시작하므로, 모든 정점의 y가 0.1보다 큰 면은 벽의 윗면뿐입니다.
-        # 정점 기반 판정은 벽 두께가 1.0일 때 이웃 셀을 침범하는 문제가 있어, 면의 중심점을 사용합니다.
         for face in self.maze_faces:
-            # 면을 구성하는 정점들의 좌표 가져오기
             verts = [self.maze_vertices[idx] for idx in face if idx < len(self.maze_vertices)]
             if not verts:
                 continue
 
-            # y좌표 최소값 확인 (0.1보다 크면 바닥에 닿지 않은 면 = 윗면)
-            min_y = min(v[1] for v in verts)
-            
-            if min_y > 0.1:
-                # 면의 중심점(X, Z) 계산
+            max_y = max(v[1] for v in verts)
+
+            if max_y > 0.6:
                 avg_x = sum(v[0] for v in verts) / len(verts)
                 avg_z = sum(v[2] for v in verts) / len(verts)
-                
-                # 그리드 인덱스로 변환
+
                 gx = int((avg_x - min_x) / grid_scale)
                 gz = int((avg_z - min_z) / grid_scale)
-                
+
                 if 0 <= gz < grid_height and 0 <= gx < grid_width:
                     self.maze_grid[gz][gx] = 1
 
         self.maze_width = grid_width
         self.maze_height = grid_height
+        print(f"[COLLISION] Using face-based grid: {grid_width}x{grid_height}")
 
     def _find_safe_spawn(self, near_top=True):
         """원본 미로 그리드에서 입구/출구 찾기"""
@@ -995,17 +1012,23 @@ class MiroOpenGLWidget(QOpenGLWidget):
         new_z = self.player_pos[2] + dz
 
         # X축 이동 체크
-        if not self._check_collision(new_x, self.player_pos[2]):
+        x_collision = self._check_collision(new_x, self.player_pos[2])
+        if not x_collision:
             self.player_pos[0] = new_x
             self._update_ground_state()
+        elif not self.is_grounded and abs(dx) > 0.001:
+            print(f"[X_BLOCK] grounded={self.is_grounded}, pos=({self.player_pos[0]:.2f}, {self.player_pos[2]:.2f}), new_x={new_x:.2f}")
 
         # Z축 이동 체크
-        if not self._check_collision(self.player_pos[0], new_z):
+        z_collision = self._check_collision(self.player_pos[0], new_z)
+        if not z_collision:
             self.player_pos[2] = new_z
             self._update_ground_state()
+        elif not self.is_grounded and abs(dz) > 0.001:
+            print(f"[Z_BLOCK] grounded={self.is_grounded}, pos=({self.player_pos[0]:.2f}, {self.player_pos[2]:.2f}), new_z={new_z:.2f}")
 
     def _check_collision(self, x, z):
-        """충돌 감지 (True면 충돌) - 높이 차이도 고려"""
+        """충돌 감지 (True면 충돌) - 벽 충돌 + 높이 차이 충돌"""
         if not self.maze_grid:
             return False
 
@@ -1025,20 +1048,15 @@ class MiroOpenGLWidget(QOpenGLWidget):
                 if self.maze_grid[gz][gx] == 1:
                     return True
 
-        # 높이 차이 검사
-        if self.floor_height_map:
-            current_floor = self._get_floor_height_at(self.player_pos[0], self.player_pos[2])
+        # 높이 차이 충돌 (지면에 있을 때만)
+        if self.floor_height_map and self.is_grounded:
             target_floor = self._get_floor_height_at(x, z)
+            current_floor = self._get_floor_height_at(self.player_pos[0], self.player_pos[2])
             height_diff = target_floor - current_floor
 
-            # 점프/낙하 중이면 플레이어 발 위치 기준으로 판단
-            player_feet_y = self.player_pos[1] - PLAYER_HEIGHT
-
-            # 플레이어 발이 목표 바닥보다 높으면 통과 가능
-            if player_feet_y >= target_floor - 0.1:  # 약간의 여유
-                pass  # 이동 허용
-            elif self.is_grounded and height_diff > MAX_STEP_HEIGHT:
-                # 지면에 있고 높이 차이가 크면 막음
+            # 높이 차이가 MAX_STEP_HEIGHT 초과하면 벽처럼 막음
+            if height_diff > MAX_STEP_HEIGHT:
+                print(f"[HEIGHT_BLOCK] grounded={self.is_grounded}, cur_floor={current_floor:.2f}, tgt_floor={target_floor:.2f}, diff={height_diff:.2f}")
                 return True
 
         return False
@@ -1088,33 +1106,47 @@ class MiroOpenGLWidget(QOpenGLWidget):
             self.player_velocity_y = 0.0
         else:
             # 공중에 있을 때 - 중력 적용
+            old_vel = self.player_velocity_y
             self.player_velocity_y += GRAVITY * dt
             self.player_pos[1] += self.player_velocity_y * dt
 
-            # 착지 체크
-            if self.player_pos[1] <= ground_y:
+            # 점프 최고점 감지 (속도가 양수에서 음수로 전환)
+            if old_vel > 0 and self.player_velocity_y <= 0:
+                print(f"[PEAK] pos=({self.player_pos[0]:.2f}, {self.player_pos[1]:.2f}, {self.player_pos[2]:.2f}), floor={target_floor:.2f}, ground_y={ground_y:.2f}")
+
+            # 착지 체크 (낙하 중일 때만)
+            if self.player_velocity_y < 0 and self.player_pos[1] <= ground_y:
                 self.player_pos[1] = ground_y
                 self.player_velocity_y = 0.0
                 self.is_grounded = True
+                print(f"[LAND] pos=({self.player_pos[0]:.2f}, {self.player_pos[1]:.2f}, {self.player_pos[2]:.2f}), floor={target_floor:.2f}")
 
     def _try_jump(self):
         """지면에 있을 때 점프"""
         if self.is_grounded:
             self.player_velocity_y = JUMP_VELOCITY
             self.is_grounded = False
+            floor_h = self._get_floor_height_at(self.player_pos[0], self.player_pos[2])
+            print(f"[JUMP] pos=({self.player_pos[0]:.2f}, {self.player_pos[1]:.2f}, {self.player_pos[2]:.2f}), floor={floor_h:.2f}")
 
     def _update_ground_state(self):
         """수평 이동 후 지면 상태 업데이트"""
+        if not self.is_grounded:
+            return
+
         new_floor = self._get_floor_height_at(self.player_pos[0], self.player_pos[2])
         ground_y = new_floor + PLAYER_HEIGHT
 
-        if self.is_grounded:
-            # 지면에 있을 때 - 높이 차이가 작으면 따라감
-            if abs(self.player_pos[1] - ground_y) <= MAX_STEP_HEIGHT:
-                self.player_pos[1] = ground_y
-            else:
-                # 높이 차이가 크면 낙하 시작
-                self.is_grounded = False
+        # 현재 발 위치와 새 바닥의 차이
+        current_feet = self.player_pos[1] - PLAYER_HEIGHT
+        height_diff = new_floor - current_feet
+
+        if height_diff < -0.05:
+            # 낮은 곳으로 이동 시 낙하 시작
+            self.is_grounded = False
+        else:
+            # 바닥 높이에 맞춤 (높이 차이가 큰 경우는 _check_collision에서 이미 막음)
+            self.player_pos[1] = ground_y
 
     def keyPressEvent(self, event):
         """키 누름 이벤트"""
