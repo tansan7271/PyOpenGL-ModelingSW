@@ -248,6 +248,7 @@ class MiroWindow(QMainWindow):
         env_layout.addWidget(QLabel("Weather:"))
         self.combo_weather = QComboBox()
         self.combo_weather.addItems(["Clear", "Rain", "Snow"])
+        self.combo_weather.currentTextChanged.connect(self._on_weather_changed)
         env_layout.addWidget(self.combo_weather)
         
         # 2. 테마
@@ -269,12 +270,19 @@ class MiroWindow(QMainWindow):
         # 초기 상태 업데이트
         self._on_thickness_changed(self.spin_thickness.value())
         self._on_fog_changed(self.check_fog.isChecked())
+        # 날씨 초기화는 콤보박스 기본값(Clear)으로 자동 호출되지 않을 수 있으므로 명시적 호출
+        self._on_weather_changed(self.combo_weather.currentText())
 
         # 크레딧 (하단)
         lbl_credits = QLabel("컴퓨터그래픽스 02분반 ∙ 06조 ∙ 김도균(20225525), 오성진(20225534), 권민준(20231389)")
         lbl_credits.setAlignment(Qt.AlignCenter)
         lbl_credits.setStyleSheet("font-weight: bold; color: #666; font-size: 14px; margin-bottom: 20px;")
         layout.addWidget(lbl_credits)
+
+    def _on_weather_changed(self, text):
+        """날씨 변경 핸들러"""
+        if hasattr(self, 'gl_widget'):
+            self.gl_widget.set_weather(text)
 
     def _on_fog_changed(self, state):
         """안개 설정 변경"""
@@ -352,23 +360,29 @@ class MiroWindow(QMainWindow):
         # Stage별 미로 파일 경로 설정
         maze_file = None
         if mode == "Stage 1":
-            self.combo_theme.setCurrentText("810-Gwan") # 테마 자동 설정
-            self.gl_widget.set_fog(False) # 안개 끄기
+            self.combo_theme.setCurrentText("810-Gwan")         # Theme: 810관
+            self.gl_widget.set_fog(False)                       # Fog: OFF
+            self.gl_widget.set_weather("Clear")                 # Weather: Clear
             maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_01.dat')
-            self._start_timer(mode, 60) # 60초 제한
+            self._start_timer(mode, 60)
+            
         elif mode == "Stage 2":
-            self.combo_theme.setCurrentText("Inside Campus") # 테마 자동 설정
-            self.gl_widget.set_fog(True) # 안개 켜기 (기믹)
+            self.combo_theme.setCurrentText("Inside Campus")    # Theme: 교정 내부
+            self.gl_widget.set_fog(True)                        # Fog: ON (분위기 조성)
+            self.gl_widget.set_weather("Rain")                  # Weather: Rain
             maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_02.dat')
-            self._start_timer(mode, 90) # 90초 제한
+            self._start_timer(mode, 90)
+            
         elif mode == "Stage 3":
-            self.combo_theme.setCurrentText("Path to the Main Gate") # 테마 자동 설정
-            self.gl_widget.set_fog(False) # 안개 끄기
+            self.combo_theme.setCurrentText("Path to the Main Gate") # Theme: 정문
+            self.gl_widget.set_fog(False)                            # Fog: OFF
+            self.gl_widget.set_weather("Snow")                       # Weather: Snow
             maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_03.dat')
-            self._start_timer(mode, 120) # 120초 제한
+            self._start_timer(mode, 120)
         elif mode == "Custom":
             # 커스텀 모드 설정값 적용
             self.gl_widget.set_fog(self.check_fog.isChecked())
+            self.gl_widget.set_weather(self.combo_weather.currentText())
 
             # 커스텀 모드: 동적으로 미로 생성
             try:

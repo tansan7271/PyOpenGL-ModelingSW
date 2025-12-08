@@ -14,6 +14,7 @@ from PyQt5.QtGui import QCursor, QImage
 
 from OpenGL.GL import *
 from OpenGL.GLU import *
+from miro_weather import WeatherSystem
 
 # 게임 상수
 PLAYER_HEIGHT = 0.8       # 눈높이
@@ -101,11 +102,19 @@ class MiroOpenGLWidget(QOpenGLWidget):
         self.fog_density = 0.5 # 안개 밀도 (값이 클수록 안개가 짙어지고 가까이서 시작됨)
         self.fog_color = [0.1, 0.1, 0.15, 1.0]
 
-        # 캐싱된 Quadric
+        # 날씨 시스템
+        self.weather = WeatherSystem()
+
+        # 캐싱된 Quadric (목표 지점 렌더링용)
         self.goal_quadric = None
 
     def set_theme(self, theme_name):
-        """테마 변경"""
+        """
+        테마를 변경하고 관련 텍스처를 다시 로드합니다.
+        
+        Args:
+            theme_name (str): 적용할 테마 이름 (예: "810-Gwan")
+        """
         if theme_name in THEMES:
             self.current_theme = theme_name
             # 텍스처 다시 로드 (GL 컨텍스트가 활성화된 상태여야 함)
@@ -113,10 +122,8 @@ class MiroOpenGLWidget(QOpenGLWidget):
                 self.makeCurrent()
                 self._load_textures()
                 # 지오메트리도 텍스처 인덱스 재할당 위해 다시 생성 필요
-                if self.maze_vertices:
-                     # load_maze 등을 통해 다시 빌드되도록 유도하거나, 여기서 VBO 재생성 호출
-                     # 현재 구조에서는 텍스처 로드만 하고, 이후 렌더링 시 반영됨
-                     pass 
+                # 현재 구조에서는 텍스처 로드만 하고, 이후 렌더링 시 반영됨
+                pass 
                 self.doneCurrent()
 
         # VBO 메타데이터
@@ -138,6 +145,11 @@ class MiroOpenGLWidget(QOpenGLWidget):
                 glDisable(GL_FOG)
             self.doneCurrent()
             self.update()
+
+    def set_weather(self, type_name):
+        """날씨 설정 (Clear, Rain, Snow)"""
+        if self.weather:
+            self.weather.set_weather(type_name)
 
     def initializeGL(self):
         """OpenGL 초기화"""
@@ -269,6 +281,10 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         # 미로 렌더링
         self._draw_maze()
+
+        # 날씨 렌더링 (투명도 처리를 위해 미로보다 나중에)
+        if self.weather:
+            self.weather.draw()
 
         # 목표 지점 표시
         self._draw_goal()
@@ -777,6 +793,12 @@ class MiroOpenGLWidget(QOpenGLWidget):
         """게임 루프 (타이머에서 호출)"""
         if not self.game_active:
             return
+
+        # 날씨 업데이트
+        if self.weather:
+            # 60FPS 기준 dt approx 0.016
+            dt = GAME_TICK_MS / 1000.0
+            self.weather.update(dt, self.player_pos)
 
         # 이동 처리
         self._process_movement()
