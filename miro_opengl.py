@@ -478,10 +478,10 @@ class MiroOpenGLWidget(QOpenGLWidget):
                 # 높이 맵 통계 출력
                 if self.floor_height_map:
                     heights = list(self.floor_height_map.values())
-                    print(f"[HEIGHT_MAP] count={len(heights)}, min={min(heights):.2f}, max={max(heights):.2f}")
+                    # print(f"[HEIGHT_MAP] count={len(heights)}, min={min(heights):.2f}, max={max(heights):.2f}")
                     # 높이가 다른 타일 몇 개 출력
                     high_tiles = [(k, v) for k, v in self.floor_height_map.items() if v > 0.1]
-                    print(f"[HEIGHT_MAP] high tiles (h>0.1): {len(high_tiles)} tiles, samples: {high_tiles[:5]}")
+                    # print(f"[HEIGHT_MAP] high tiles (h>0.1): {len(high_tiles)} tiles, samples: {high_tiles[:5]}")
 
                 # 미로 그리드 데이터 파싱 (v7 전용)
                 self.original_maze_grid = None
@@ -800,7 +800,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
             self.maze_grid = self.original_maze_grid
             self.maze_width = self.original_maze_width
             self.maze_height = self.original_maze_height
-            print(f"[COLLISION] Using original_maze_grid: {self.maze_width}x{self.maze_height}")
+            # print(f"[COLLISION] Using original_maze_grid: {self.maze_width}x{self.maze_height}")
             return
 
         # 원본 그리드가 없으면 면 기반으로 추정 (폴백)
@@ -835,7 +835,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         self.maze_width = grid_width
         self.maze_height = grid_height
-        print(f"[COLLISION] Using face-based grid: {grid_width}x{grid_height}")
+        # print(f"[COLLISION] Using face-based grid: {grid_width}x{grid_height}")
 
     def _find_safe_spawn(self, near_top=True):
         """원본 미로 그리드에서 입구/출구 찾기"""
@@ -1016,16 +1016,16 @@ class MiroOpenGLWidget(QOpenGLWidget):
         if not x_collision:
             self.player_pos[0] = new_x
             self._update_ground_state()
-        elif not self.is_grounded and abs(dx) > 0.001:
-            print(f"[X_BLOCK] grounded={self.is_grounded}, pos=({self.player_pos[0]:.2f}, {self.player_pos[2]:.2f}), new_x={new_x:.2f}")
+        # elif not self.is_grounded and abs(dx) > 0.001:
+        #     print(f"[X_BLOCK] grounded={self.is_grounded}, pos=({self.player_pos[0]:.2f}, {self.player_pos[2]:.2f}), new_x={new_x:.2f}")
 
         # Z축 이동 체크
         z_collision = self._check_collision(self.player_pos[0], new_z)
         if not z_collision:
             self.player_pos[2] = new_z
             self._update_ground_state()
-        elif not self.is_grounded and abs(dz) > 0.001:
-            print(f"[Z_BLOCK] grounded={self.is_grounded}, pos=({self.player_pos[0]:.2f}, {self.player_pos[2]:.2f}), new_z={new_z:.2f}")
+        # elif not self.is_grounded and abs(dz) > 0.001:
+        #     print(f"[Z_BLOCK] grounded={self.is_grounded}, pos=({self.player_pos[0]:.2f}, {self.player_pos[2]:.2f}), new_z={new_z:.2f}")
 
     def _check_collision(self, x, z):
         """충돌 감지 (True면 충돌) - 벽 충돌 + 높이 차이 충돌"""
@@ -1054,9 +1054,9 @@ class MiroOpenGLWidget(QOpenGLWidget):
             current_floor = self._get_floor_height_at(self.player_pos[0], self.player_pos[2])
             height_diff = target_floor - current_floor
 
-            # 높이 차이가 MAX_STEP_HEIGHT 초과하면 벽처럼 막음
-            if height_diff > MAX_STEP_HEIGHT:
-                print(f"[HEIGHT_BLOCK] grounded={self.is_grounded}, cur_floor={current_floor:.2f}, tgt_floor={target_floor:.2f}, diff={height_diff:.2f}")
+            # 올라가는 경우: 아주 작은 차이만 허용 (점프 필수)
+            # 내려가는 경우: 자유롭게 이동 가능
+            if height_diff > 0.01:
                 return True
 
         return False
@@ -1111,23 +1111,23 @@ class MiroOpenGLWidget(QOpenGLWidget):
             self.player_pos[1] += self.player_velocity_y * dt
 
             # 점프 최고점 감지 (속도가 양수에서 음수로 전환)
-            if old_vel > 0 and self.player_velocity_y <= 0:
-                print(f"[PEAK] pos=({self.player_pos[0]:.2f}, {self.player_pos[1]:.2f}, {self.player_pos[2]:.2f}), floor={target_floor:.2f}, ground_y={ground_y:.2f}")
+            # if old_vel > 0 and self.player_velocity_y <= 0:
+            #     print(f"[PEAK] pos=({self.player_pos[0]:.2f}, {self.player_pos[1]:.2f}, {self.player_pos[2]:.2f}), floor={target_floor:.2f}, ground_y={ground_y:.2f}")
 
             # 착지 체크 (낙하 중일 때만)
             if self.player_velocity_y < 0 and self.player_pos[1] <= ground_y:
                 self.player_pos[1] = ground_y
                 self.player_velocity_y = 0.0
                 self.is_grounded = True
-                print(f"[LAND] pos=({self.player_pos[0]:.2f}, {self.player_pos[1]:.2f}, {self.player_pos[2]:.2f}), floor={target_floor:.2f}")
+                # print(f"[LAND] pos=({self.player_pos[0]:.2f}, {self.player_pos[1]:.2f}, {self.player_pos[2]:.2f}), floor={target_floor:.2f}")
 
     def _try_jump(self):
         """지면에 있을 때 점프"""
         if self.is_grounded:
             self.player_velocity_y = JUMP_VELOCITY
             self.is_grounded = False
-            floor_h = self._get_floor_height_at(self.player_pos[0], self.player_pos[2])
-            print(f"[JUMP] pos=({self.player_pos[0]:.2f}, {self.player_pos[1]:.2f}, {self.player_pos[2]:.2f}), floor={floor_h:.2f}")
+            # floor_h = self._get_floor_height_at(self.player_pos[0], self.player_pos[2])
+            # print(f"[JUMP] pos=({self.player_pos[0]:.2f}, {self.player_pos[1]:.2f}, {self.player_pos[2]:.2f}), floor={floor_h:.2f}")
 
     def _update_ground_state(self):
         """수평 이동 후 지면 상태 업데이트"""
