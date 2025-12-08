@@ -1,13 +1,50 @@
 import sys
 import os
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QListWidget, QListWidgetItem
-from PyQt5.QtCore import Qt, QSize, QEvent
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+                             QStackedWidget, QListWidget, QListWidgetItem, QGroupBox, QCheckBox, QLabel)
+from PyQt5.QtCore import Qt, QSize, QEvent, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QPalette
 from PyQt5.QtSvg import QSvgRenderer
 
 # 서브 애플리케이션 호출~!
 from modeler_ui_and_chang import MainWindow as ModelerWindow
 from miro_ui_and_chang import MiroWindow
+
+
+class SettingsPage(QWidget):
+    """전역 설정 페이지"""
+    gpuAccelerationChanged = pyqtSignal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # 타이틀
+        title = QLabel("Settings")
+        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        layout.addWidget(title)
+
+        # 그래픽 설정 그룹
+        graphics_group = QGroupBox("Graphics")
+        graphics_layout = QVBoxLayout()
+
+        self.chk_gpu_accel = QCheckBox("GPU Acceleration (VBO)")
+        self.chk_gpu_accel.setChecked(True)
+        self.chk_gpu_accel.setToolTip("Enable VBO-based rendering for better performance")
+        self.chk_gpu_accel.stateChanged.connect(self._on_gpu_accel_changed)
+        graphics_layout.addWidget(self.chk_gpu_accel)
+
+        graphics_group.setLayout(graphics_layout)
+        layout.addWidget(graphics_group)
+
+        layout.addStretch()
+
+    def _on_gpu_accel_changed(self, state):
+        enabled = (state == Qt.Checked)
+        self.gpuAccelerationChanged.emit(enabled)
+
 
 class MainContainer(QMainWindow):
     """
@@ -56,7 +93,11 @@ class MainContainer(QMainWindow):
         self.item_maze = QListWidgetItem("", self.menu_list)
         self.item_maze.setToolTip("Maze Game")
         self.item_maze.setTextAlignment(Qt.AlignCenter)
-        
+
+        self.item_settings = QListWidgetItem("", self.menu_list)
+        self.item_settings.setToolTip("Settings")
+        self.item_settings.setTextAlignment(Qt.AlignCenter)
+
         sidebar_layout.addWidget(self.menu_list)
         main_layout.addWidget(self.sidebar)
         
@@ -72,10 +113,16 @@ class MainContainer(QMainWindow):
         
         self.stack.addWidget(self.modeler)
         self.stack.addWidget(self.maze)
-        
+
+        # 설정 페이지 추가
+        self.settings_page = SettingsPage()
+        self.stack.addWidget(self.settings_page)
+
         # 연결
         self.menu_list.currentRowChanged.connect(self.stack.setCurrentIndex)
-        # 초기 화면 설정 (0: Modeler, 1: Maze Game)
+        self.settings_page.gpuAccelerationChanged.connect(self._on_gpu_accel_changed)
+
+        # 초기 화면 설정 (0: Modeler, 1: Maze Game, 2: Settings)
         self.stack.setCurrentIndex(1)
         self.menu_list.setCurrentRow(1)
 
@@ -150,6 +197,7 @@ class MainContainer(QMainWindow):
         # 아이콘 업데이트
         self.item_modeler.setIcon(self._create_themed_icon("icon_modeler", icon_color, selected_icon_color))
         self.item_maze.setIcon(self._create_themed_icon("icon_maze", icon_color, selected_icon_color))
+        self.item_settings.setIcon(self._create_themed_icon("icon_settings", icon_color, selected_icon_color))
 
     def _create_themed_icon(self, name, normal_color_code, selected_color_code):
         """
@@ -207,6 +255,14 @@ class MainContainer(QMainWindow):
         painter.end()
         
         return tinted
+
+    def _on_gpu_accel_changed(self, enabled):
+        """GPU 가속 설정을 모델러와 미로 게임 모두에 적용"""
+        # 모델러
+        self.modeler.glWidget.set_gpu_acceleration(enabled)
+        # 미로 게임
+        self.maze.gl_widget.set_gpu_acceleration(enabled)
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

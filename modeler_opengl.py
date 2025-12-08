@@ -8,6 +8,7 @@ OpenGLWidget 클래스를 정의합니다. 2D 프로파일 곡선 편집, 3D SOR
 """
 
 import math
+import numpy as np
 from PyQt5.QtWidgets import QOpenGLWidget
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QPainter, QColor, QFont
@@ -77,6 +78,18 @@ class OpenGLWidget(QOpenGLWidget):
         self.model_color = (0.0, 0.8, 0.8) # 모델 색상 (Cyan)
         self.projection_mode = 'Perspective' # 'Perspective' or 'Ortho'
         self.show_wireframe = True   # 와이어프레임 오버레이 여부
+
+        # --- GPU 가속 설정 (GPU Acceleration / VBO) ---
+        self.use_gpu_acceleration = True  # GPU 가속 사용 여부
+        self.vbo_initialized = False      # VBO 초기화 여부
+        self.vbo_quad_vertices = None     # Quad 정점 VBO
+        self.vbo_quad_normals = None      # Quad 법선 VBO (Gouraud)
+        self.vbo_quad_flat_normals = None # Quad 법선 VBO (Flat)
+        self.quad_vertex_count = 0        # Quad 정점 수
+        self.vbo_tri_vertices = None      # Triangle 정점 VBO
+        self.vbo_tri_normals = None       # Triangle 법선 VBO (Gouraud)
+        self.vbo_tri_flat_normals = None  # Triangle 법선 VBO (Flat)
+        self.tri_vertex_count = 0         # Triangle 정점 수
 
     # =========================================================================
     # OpenGL 생명주기 메서드 (OpenGL Lifecycle Methods)
@@ -288,6 +301,10 @@ class OpenGLWidget(QOpenGLWidget):
         """3D 모델 렌더링 (Solid, Wireframe, Shading)"""
         if not self.sor_vertices: return
 
+        # VBO 또는 레거시 렌더링 선택
+        use_vbo = self.use_gpu_acceleration and self.vbo_initialized
+        draw_func = self._draw_faces_vbo if use_vbo else self._draw_faces
+
         # 렌더링 모드 설정
         glDisable(GL_LIGHTING)
         glDisable(GL_CULL_FACE)
@@ -297,23 +314,23 @@ class OpenGLWidget(QOpenGLWidget):
         if self.render_mode == 0: # Wireframe
             glColor3f(1.0, 1.0, 1.0)
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-            self._draw_faces()
-            
+            draw_func()
+
         elif self.render_mode == 1: # Solid
             glColor3f(*self.model_color)
-            self._draw_faces()
-            
+            draw_func()
+
         elif self.render_mode == 2: # Flat Shading
             glEnable(GL_LIGHTING)
             glShadeModel(GL_FLAT)
             glColor3f(*self.model_color)
-            self._draw_faces()
-            
+            draw_func()
+
         elif self.render_mode == 3: # Gouraud Shading
             glEnable(GL_LIGHTING)
             glShadeModel(GL_SMOOTH)
             glColor3f(*self.model_color)
-            self._draw_faces()
+            draw_func()
 
         # Wireframe Overlay
         if self.render_mode != 0 and self.show_wireframe:
@@ -322,7 +339,7 @@ class OpenGLWidget(QOpenGLWidget):
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
             glEnable(GL_POLYGON_OFFSET_LINE)
             glPolygonOffset(-1.0, -1.0)
-            self._draw_faces()
+            draw_func()
             glDisable(GL_POLYGON_OFFSET_LINE)
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
         
@@ -366,6 +383,174 @@ class OpenGLWidget(QOpenGLWidget):
                     if not (math.isnan(vx) or math.isinf(vx)):
                         glVertex3f(vx, vy, vz)
         glEnd()
+
+    # =========================================================================
+    # VBO 기반 렌더링 (GPU Acceleration)
+    # =========================================================================
+
+    def _create_buffer(self, data):
+        """numpy 배열로부터 VBO 생성"""
+        vbo = glGenBuffers(1)
+        glBindBuffer(GL_ARRAY_BUFFER, vbo)
+        glBufferData(GL_ARRAY_BUFFER, data.nbytes, data, GL_STATIC_DRAW)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+        return vbo
+
+    def _cleanup_vbos(self):
+        """기존 VBO 삭제하여 GPU 메모리 해제"""
+        buffers = [
+            self.vbo_quad_vertices, self.vbo_quad_normals, self.vbo_quad_flat_normals,
+            self.vbo_tri_vertices, self.vbo_tri_normals, self.vbo_tri_flat_normals
+        ]
+        valid_buffers = [b for b in buffers if b is not None]
+        if valid_buffers:
+            glDeleteBuffers(len(valid_buffers), valid_buffers)
+
+        self.vbo_quad_vertices = None
+        self.vbo_quad_normals = None
+        self.vbo_quad_flat_normals = None
+        self.quad_vertex_count = 0
+        self.vbo_tri_vertices = None
+        self.vbo_tri_normals = None
+        self.vbo_tri_flat_normals = None
+        self.tri_vertex_count = 0
+        self.vbo_initialized = False
+
+    def _create_vbos(self):
+        """현재 지오메트리 데이터로부터 VBO 생성"""
+        if not self.sor_vertices or not self.sor_faces:
+            return
+
+        self._cleanup_vbos()
+
+        vertices = np.array(self.sor_vertices, dtype=np.float32)
+        normals = np.array(self.sor_normals, dtype=np.float32) if self.sor_normals else None
+
+        # 면을 Quad/Triangle로 분리
+        quad_faces = [f for f in self.sor_faces if len(f) == 4]
+        tri_faces = [f for f in self.sor_faces if len(f) == 3]
+
+        # === Quad VBO 생성 ===
+        if quad_faces:
+            quad_v_list = []
+            quad_n_smooth = []
+            quad_n_flat = []
+
+            for face in quad_faces:
+                if any(idx >= len(vertices) for idx in face):
+                    continue
+
+                # 면 법선 계산 (Flat 셰이딩용)
+                v0, v1, v2 = vertices[face[0]], vertices[face[1]], vertices[face[2]]
+                u = v1 - v0
+                v = v2 - v0
+                face_normal = np.cross(u, v)
+                length = np.linalg.norm(face_normal)
+                if length > 1e-6:
+                    face_normal = face_normal / length
+                else:
+                    face_normal = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+
+                for idx in face:
+                    quad_v_list.extend(vertices[idx])
+                    if normals is not None and idx < len(normals):
+                        quad_n_smooth.extend(normals[idx])
+                    else:
+                        quad_n_smooth.extend([0.0, 1.0, 0.0])
+                    quad_n_flat.extend(face_normal)
+
+            if quad_v_list:
+                v_data = np.array(quad_v_list, dtype=np.float32)
+                n_smooth_data = np.array(quad_n_smooth, dtype=np.float32)
+                n_flat_data = np.array(quad_n_flat, dtype=np.float32)
+
+                self.vbo_quad_vertices = self._create_buffer(v_data)
+                self.vbo_quad_normals = self._create_buffer(n_smooth_data)
+                self.vbo_quad_flat_normals = self._create_buffer(n_flat_data)
+                self.quad_vertex_count = len(quad_v_list) // 3
+
+        # === Triangle VBO 생성 ===
+        if tri_faces:
+            tri_v_list = []
+            tri_n_smooth = []
+            tri_n_flat = []
+
+            for face in tri_faces:
+                if any(idx >= len(vertices) for idx in face):
+                    continue
+
+                v0, v1, v2 = vertices[face[0]], vertices[face[1]], vertices[face[2]]
+                u = v1 - v0
+                v = v2 - v0
+                face_normal = np.cross(u, v)
+                length = np.linalg.norm(face_normal)
+                if length > 1e-6:
+                    face_normal = face_normal / length
+                else:
+                    face_normal = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+
+                for idx in face:
+                    tri_v_list.extend(vertices[idx])
+                    if normals is not None and idx < len(normals):
+                        tri_n_smooth.extend(normals[idx])
+                    else:
+                        tri_n_smooth.extend([0.0, 1.0, 0.0])
+                    tri_n_flat.extend(face_normal)
+
+            if tri_v_list:
+                v_data = np.array(tri_v_list, dtype=np.float32)
+                n_smooth_data = np.array(tri_n_smooth, dtype=np.float32)
+                n_flat_data = np.array(tri_n_flat, dtype=np.float32)
+
+                self.vbo_tri_vertices = self._create_buffer(v_data)
+                self.vbo_tri_normals = self._create_buffer(n_smooth_data)
+                self.vbo_tri_flat_normals = self._create_buffer(n_flat_data)
+                self.tri_vertex_count = len(tri_v_list) // 3
+
+        self.vbo_initialized = True
+
+    def _draw_faces_vbo(self):
+        """VBO를 사용한 면 렌더링"""
+        if not self.vbo_initialized:
+            return
+
+        glEnableClientState(GL_VERTEX_ARRAY)
+        glEnableClientState(GL_NORMAL_ARRAY)
+
+        use_flat = (self.render_mode == 2)
+
+        # Quad 렌더링
+        if self.quad_vertex_count > 0 and self.vbo_quad_vertices is not None:
+            glBindBuffer(GL_ARRAY_BUFFER, self.vbo_quad_vertices)
+            glVertexPointer(3, GL_FLOAT, 0, None)
+
+            normal_vbo = self.vbo_quad_flat_normals if use_flat else self.vbo_quad_normals
+            if normal_vbo is not None:
+                glBindBuffer(GL_ARRAY_BUFFER, normal_vbo)
+                glNormalPointer(GL_FLOAT, 0, None)
+
+            glDrawArrays(GL_QUADS, 0, self.quad_vertex_count)
+
+        # Triangle 렌더링
+        if self.tri_vertex_count > 0 and self.vbo_tri_vertices is not None:
+            glBindBuffer(GL_ARRAY_BUFFER, self.vbo_tri_vertices)
+            glVertexPointer(3, GL_FLOAT, 0, None)
+
+            normal_vbo = self.vbo_tri_flat_normals if use_flat else self.vbo_tri_normals
+            if normal_vbo is not None:
+                glBindBuffer(GL_ARRAY_BUFFER, normal_vbo)
+                glNormalPointer(GL_FLOAT, 0, None)
+
+            glDrawArrays(GL_TRIANGLES, 0, self.tri_vertex_count)
+
+        glDisableClientState(GL_NORMAL_ARRAY)
+        glDisableClientState(GL_VERTEX_ARRAY)
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+    def set_gpu_acceleration(self, enabled):
+        """GPU 가속 사용 여부 설정"""
+        self.use_gpu_acceleration = enabled
+        self.update()
 
     # =========================================================================
     # 사용자 입력 처리 (User Input Handling)
@@ -455,9 +640,13 @@ class OpenGLWidget(QOpenGLWidget):
                 self._generate_sor()
             else:
                 self._generate_sweep()
-            
+
             self.calculate_normals()
-            
+
+            # VBO 생성 (GPU 가속용)
+            if self.use_gpu_acceleration:
+                self._create_vbos()
+
         except Exception as e:
             print(f"generate_model Error: {e}")
             import traceback
@@ -710,14 +899,18 @@ class OpenGLWidget(QOpenGLWidget):
                     idx += 1
                     
                 self.calculate_normals() # 법선 재계산
-                
+
+                # VBO 생성 (GPU 가속용)
+                if self.use_gpu_acceleration:
+                    self._create_vbos()
+
                 self.update()
                 self.pointsChanged.emit()
-                
+
                 if self.view_mode == '2D':
                     self.view_mode = '3D'
                     self.viewModeChanged.emit('3D')
-                    
+
             print(f"로드 완료: {file_path}")
         except Exception as e:
             print(f"로드 실패: {e}")
@@ -771,6 +964,7 @@ class OpenGLWidget(QOpenGLWidget):
         self.current_path_idx = 0
         self.sor_vertices = []
         self.sor_faces = []
+        self._cleanup_vbos()  # VBO 정리
         self.update()
         self.pointsChanged.emit()
 

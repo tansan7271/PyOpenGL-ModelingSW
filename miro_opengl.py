@@ -96,6 +96,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         # VBO 메타데이터
         self.vbo_initialized = False
+        self.use_gpu_acceleration = True  # GPU 가속 사용 여부
 
         # 환경 설정 (안개)
         self.fog_enabled = True
@@ -133,6 +134,11 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         # 캐싱된 Quadric (목표 지점 렌더링용)
         self.goal_quadric = None
+
+    def set_gpu_acceleration(self, enabled):
+        """GPU 가속 사용 여부 설정"""
+        self.use_gpu_acceleration = enabled
+        self.update()
 
     def set_fog(self, enabled):
         """안개 켜기/끄기"""
