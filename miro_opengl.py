@@ -27,7 +27,8 @@ GAME_TICK_MS = 16         # ~60 FPS
 THEMES = {
     "810-Gwan": "theme_810",
     "Inside Campus": "theme_campus",
-    "Path to the Main Gate": "theme_gate"
+    "Path to the Main Gate": "theme_gate",
+    "Developer": "theme_developer"
 }
 
 class MiroOpenGLWidget(QOpenGLWidget):
@@ -104,7 +105,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         # 환경 설정 (안개)
         self.fog_enabled = True
-        self.fog_density = 0.5 # 안개 밀도 (값이 클수록 안개가 짙어지고 가까이서 시작됨)
+        self.fog_density = 0.4 # 안개 밀도 (값이 클수록 안개가 짙어지고 가까이서 시작됨)
         self.fog_color = [0.1, 0.1, 0.15, 1.0]
 
         # 날씨 시스템

@@ -255,7 +255,8 @@ class MiroWindow(QMainWindow):
         # 2. 테마
         env_layout.addWidget(QLabel("Theme:"))
         self.combo_theme = QComboBox()
-        self.combo_theme.addItems(["810-Gwan", "Inside Campus", "Path to the Main Gate"]) # Shortened names for better layout
+        self.combo_theme.addItems(["810-Gwan", "Inside Campus", "Path to the Main Gate", "Developer"]) # Developer at the end
+        self.combo_theme.setCurrentText("810-Gwan")
         self.combo_theme.currentTextChanged.connect(self._on_theme_changed)
         env_layout.addWidget(self.combo_theme)
 
