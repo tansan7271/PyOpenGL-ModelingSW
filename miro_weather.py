@@ -9,7 +9,7 @@ class WeatherSystem:
     수천 개의 파티클 업데이트를 벡터 연산으로 최적화합니다.
     """
     def __init__(self, max_particles=4000, extent=12.0):
-        # max_particles: 파티클 개수 (이 값을 조절하여 비/눈의 밀도를 변경하세요)
+        # max_particles: 파티클 개수 (이 값을 조절하여 비/눈의 밀도를 변경)
         self.max_particles = max_particles
         # extent: 플레이어 주변 파티클 생성 범위 (너무 넓으면 산만하고, 좁으면 비어보임)
         self.extent = extent 
