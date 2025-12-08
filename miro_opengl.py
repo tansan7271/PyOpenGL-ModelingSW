@@ -28,6 +28,15 @@ GRAVITY = -15.0           # 중력 가속도 (units/sec^2)
 JUMP_VELOCITY = 5.0       # 점프 초기 속도
 MAX_STEP_HEIGHT = 0.3     # 점프 없이 오를 수 있는 최대 높이
 
+# 아이템 상수
+ITEM_COUNT = 3
+ITEM_PICKUP_RADIUS = 0.5
+ITEM_ROTATION_SPEED = 90.0   # degrees per second
+ITEM_BOB_SPEED = 3.0         # radians per second
+ITEM_BOB_AMPLITUDE = 0.15    # world units
+ITEM_HEIGHT = 0.5            # base height above floor
+ITEM_TARGET_SIZE_RATIO = 0.8 # 타일 크기 대비 아이템 크기 비율
+
 # 테마 설정
 THEMES = {
     "810-Gwan": "theme_810",
@@ -127,6 +136,10 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 캐싱된 Quadric (목표 지점 렌더링용)
         self.goal_quadric = None
 
+        # 아이템 시스템
+        self.items = []              # [{'pos': [x, z], 'rotation': float, 'bob_phase': float, 'model_idx': int}]
+        self.item_models = []        # [{'vertices': [...], 'faces': [...], 'normals': [...], 'color': (r,g,b)}]
+
     def set_theme(self, theme_name):
         """
         테마를 변경하고 관련 텍스처를 다시 로드합니다.
@@ -213,7 +226,10 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 캐싱된 Quadric 생성 (목표 지점 렌더링용)
         self.goal_quadric = gluNewQuadric()
         gluQuadricNormals(self.goal_quadric, GLU_SMOOTH)
-        
+
+        # 아이템 모델 로드
+        self._load_item_models()
+
         # 텍스처 로드
         self._load_textures()
 
@@ -318,6 +334,9 @@ class MiroOpenGLWidget(QOpenGLWidget):
         if self.weather:
             self.weather.draw()
 
+        # 아이템 렌더링
+        self._draw_items()
+
         # 목표 지점 표시
         self._draw_goal()
 
@@ -396,6 +415,53 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         glEnable(GL_LIGHTING)
         glPopMatrix()
+
+    def _draw_items(self):
+        """아이템 렌더링 (3D 모델, 회전+상하 움직임)"""
+        if not self.items or not self.item_models:
+            return
+
+        glEnable(GL_LIGHTING)
+        glDisable(GL_TEXTURE_2D)
+
+        # 타일 크기 기반 목표 아이템 크기
+        target_size = self.grid_scale * ITEM_TARGET_SIZE_RATIO
+
+        for item in self.items:
+            model = self.item_models[item['model_idx']]
+            bob_offset = math.sin(item['bob_phase']) * ITEM_BOB_AMPLITUDE
+
+            # 적응형 스케일: 목표 크기 / 모델 원본 크기
+            scale = target_size / model['model_size'] if model['model_size'] > 0 else 0.05
+
+            glPushMatrix()
+            glTranslatef(item['pos'][0], ITEM_HEIGHT + bob_offset, item['pos'][1])
+            glRotatef(item['rotation'], 0, 1, 0)
+            glScalef(scale, scale, scale)
+
+            glColor3f(*model['color'])
+
+            # Quad 면 렌더링
+            glBegin(GL_QUADS)
+            for i, face in enumerate(model['faces']):
+                if len(face) == 4:
+                    glNormal3fv(model['normals'][i])
+                    for vi in face:
+                        glVertex3fv(model['vertices'][vi])
+            glEnd()
+
+            # Triangle 면 렌더링
+            glBegin(GL_TRIANGLES)
+            for i, face in enumerate(model['faces']):
+                if len(face) == 3:
+                    glNormal3fv(model['normals'][i])
+                    for vi in face:
+                        glVertex3fv(model['vertices'][vi])
+            glEnd()
+
+            glPopMatrix()
+
+        glEnable(GL_TEXTURE_2D)
 
     def load_maze(self, file_path):
         """미로 파일 로드 (.dat 형식, v6/v7 지원)"""
@@ -610,6 +676,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # OpenGL 컨텍스트 유효성 검사
         if not self.isValid():
             self.goal_quadric = None
+            self.item_models = []
             self.theme_textures['walls'] = []
             self.theme_textures['floors'] = []
             return
@@ -619,6 +686,9 @@ class MiroOpenGLWidget(QOpenGLWidget):
         if self.goal_quadric:
             gluDeleteQuadric(self.goal_quadric)
             self.goal_quadric = None
+
+        # 아이템 모델 정리
+        self.item_models = []
 
         # 텍스처 삭제 (리스트 순회)
         all_textures = self.theme_textures['walls'] + self.theme_textures['floors']
@@ -937,6 +1007,9 @@ class MiroOpenGLWidget(QOpenGLWidget):
         self.game_active = True
         self.game_paused = False
 
+        # 아이템 스폰
+        self._spawn_items()
+
         # 마우스 캡처
         self.mouse_captured = True
         self.setMouseTracking(True)
@@ -989,17 +1062,24 @@ class MiroOpenGLWidget(QOpenGLWidget):
         if not self.game_active:
             return
 
+        # 60FPS 기준 dt approx 0.016
+        dt = GAME_TICK_MS / 1000.0
+
         # 날씨 업데이트
         if self.weather:
-            # 60FPS 기준 dt approx 0.016
-            dt = GAME_TICK_MS / 1000.0
             self.weather.update(dt, self.player_pos)
+
+        # 아이템 애니메이션 업데이트
+        self._update_items(dt)
 
         # 이동 처리
         self._process_movement()
 
         # 수직 물리 처리 (점프, 중력)
         self._process_vertical_physics()
+
+        # 아이템 수집 체크
+        self._check_item_collision()
 
         # 목표 도달 체크
         self._check_goal()
@@ -1098,6 +1178,163 @@ class MiroOpenGLWidget(QOpenGLWidget):
         if distance_sq < goal_radius_sq:
             self.stop_game()
             self.game_won.emit()
+
+    def _spawn_items(self):
+        """게임 시작 시 무작위 위치에 아이템 배치"""
+        self.items = []
+
+        if not self.maze_grid or not self.maze_grid[0] or not self.item_models:
+            return
+
+        # 모든 통로 셀 수집
+        passages = []
+        for gz in range(len(self.maze_grid)):
+            for gx in range(len(self.maze_grid[0])):
+                if self.maze_grid[gz][gx] == 0:
+                    x = self.grid_min_x + (gx + 0.5) * self.grid_scale
+                    z = self.grid_min_z + (gz + 0.5) * self.grid_scale
+
+                    # 시작점/골 위치 제외
+                    dist_start_sq = (x - self.start_pos[0]) ** 2 + (z - self.start_pos[1]) ** 2
+                    dist_goal_sq = (x - self.goal_pos[0]) ** 2 + (z - self.goal_pos[1]) ** 2
+
+                    if dist_start_sq > 2.25 and dist_goal_sq > 2.25:  # 1.5^2 = 2.25
+                        passages.append((x, z))
+
+        # 무작위 3개 위치 + 무작위 3개 모델 선택
+        count = min(ITEM_COUNT, len(passages))
+        if count > 0:
+            selected_pos = random.sample(passages, count)
+            selected_models = random.sample(range(len(self.item_models)), min(count, len(self.item_models)))
+
+            for i, (x, z) in enumerate(selected_pos):
+                self.items.append({
+                    'pos': [x, z],
+                    'rotation': random.uniform(0, 360),
+                    'bob_phase': random.uniform(0, 2 * math.pi),
+                    'model_idx': selected_models[i % len(selected_models)]
+                })
+
+    def _update_items(self, dt):
+        """아이템 회전 및 상하 움직임 업데이트"""
+        for item in self.items:
+            item['rotation'] += ITEM_ROTATION_SPEED * dt
+            item['bob_phase'] += ITEM_BOB_SPEED * dt
+
+    def _check_item_collision(self):
+        """플레이어와 아이템 충돌 체크, 접촉 시 아이템 제거"""
+        px, pz = self.player_pos[0], self.player_pos[2]
+        radius_sq = ITEM_PICKUP_RADIUS * ITEM_PICKUP_RADIUS
+
+        # 역순 순회로 안전하게 제거
+        for i in range(len(self.items) - 1, -1, -1):
+            ix, iz = self.items[i]['pos']
+            dist_sq = (px - ix) ** 2 + (pz - iz) ** 2
+            if dist_sq < radius_sq:
+                self.items.pop(i)
+
+    def _load_item_models(self):
+        """아이템 모델 로드 (datasets/item_*.dat)"""
+        base_path = os.path.dirname(__file__)
+        item_files = sorted(glob.glob(os.path.join(base_path, 'datasets', 'item_*.dat')))
+
+        self.item_models = []
+        for file_path in item_files:
+            model = self._parse_item_file(file_path)
+            if model:
+                self.item_models.append(model)
+        print(f"아이템 모델 {len(self.item_models)}개 로드 완료")
+
+    def _parse_item_file(self, file_path):
+        """단일 아이템 .dat 파일 파싱"""
+        try:
+            with open(file_path, 'r') as f:
+                lines = f.readlines()
+                idx = 0
+
+                # Header (v6 형식)
+                parts = lines[idx].strip().split()
+                color = (float(parts[4]), float(parts[5]), float(parts[6]))
+                idx += 1
+
+                # Skip paths
+                num_paths = int(lines[idx].strip())
+                idx += 1
+                for _ in range(num_paths):
+                    num_pts = int(lines[idx].strip())
+                    idx += 1
+                    # closed flag check
+                    try:
+                        if lines[idx].strip() in ['0', '1']:
+                            idx += 1
+                    except:
+                        pass
+                    idx += num_pts
+
+                # Vertices
+                num_v = int(lines[idx].strip())
+                idx += 1
+                vertices = []
+                for _ in range(num_v):
+                    vertices.append(tuple(map(float, lines[idx].strip().split())))
+                    idx += 1
+
+                # Faces
+                num_f = int(lines[idx].strip())
+                idx += 1
+                faces = []
+                for _ in range(num_f):
+                    parts = list(map(int, lines[idx].strip().split()))
+                    faces.append(parts[1:])  # 첫 번째는 face vertex count
+                    idx += 1
+
+                # Calculate normals
+                normals = self._calculate_item_normals(vertices, faces)
+
+                # 모델 바운딩 박스 계산 (적응형 스케일링용)
+                if vertices:
+                    xs = [v[0] for v in vertices]
+                    ys = [v[1] for v in vertices]
+                    zs = [v[2] for v in vertices]
+                    model_size = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
+                else:
+                    model_size = 1.0
+
+                return {'vertices': vertices, 'faces': faces, 'normals': normals, 'color': color, 'model_size': model_size}
+        except Exception as e:
+            print(f"아이템 파일 로드 실패: {file_path}, {e}")
+            return None
+
+    def _calculate_item_normals(self, vertices, faces):
+        """아이템 면 법선 계산"""
+        normals = []
+        for face in faces:
+            if len(face) >= 3:
+                v0 = vertices[face[0]]
+                v1 = vertices[face[1]]
+                v2 = vertices[face[2]]
+
+                # 두 벡터 계산
+                u = [v1[i] - v0[i] for i in range(3)]
+                v = [v2[i] - v0[i] for i in range(3)]
+
+                # 외적
+                n = [
+                    u[1] * v[2] - u[2] * v[1],
+                    u[2] * v[0] - u[0] * v[2],
+                    u[0] * v[1] - u[1] * v[0]
+                ]
+
+                # 정규화
+                length = math.sqrt(sum(x * x for x in n))
+                if length > 0:
+                    n = [x / length for x in n]
+                else:
+                    n = [0, 1, 0]
+                normals.append(n)
+            else:
+                normals.append([0, 1, 0])
+        return normals
 
     def _get_floor_height_at(self, x, z):
         """월드 좌표에서 바닥 높이 조회"""
