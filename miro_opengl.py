@@ -44,6 +44,8 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
     # 시그널: 게임 클리어 시 발생
     game_won = pyqtSignal()
+    gamePaused = pyqtSignal()
+    gameResumed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -81,6 +83,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         # 게임 상태
         self.game_active = False
+        self.game_paused = False
         self.mouse_captured = False
         self.last_mouse_pos = None
         self.current_theme = "810-Gwan" # 기본 테마
@@ -932,6 +935,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         # 게임 활성화
         self.game_active = True
+        self.game_paused = False
 
         # 마우스 캡처
         self.mouse_captured = True
@@ -950,6 +954,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
     def stop_game(self):
         """게임 중지"""
         self.game_active = False
+        self.game_paused = False
         self.game_timer.stop()
 
         # 마우스 해제
@@ -957,6 +962,27 @@ class MiroOpenGLWidget(QOpenGLWidget):
         self.setMouseTracking(False)
         self.releaseMouse()
         self.setCursor(Qt.ArrowCursor)
+
+    def pause_game(self):
+        """게임 일시정지"""
+        if self.game_active and not self.game_paused:
+            self.game_paused = True
+            self.game_timer.stop()
+            self.mouse_captured = False
+            self.releaseMouse()
+            self.setCursor(Qt.ArrowCursor)
+            self.gamePaused.emit()
+
+    def resume_game(self):
+        """게임 재개"""
+        if self.game_active and self.game_paused:
+            self.game_paused = False
+            self.mouse_captured = True
+            self.grabMouse()
+            self.setCursor(Qt.BlankCursor)
+            self.game_timer.start(GAME_TICK_MS)
+            self.setFocus()
+            self.gameResumed.emit()
 
     def _update_game(self):
         """게임 루프 (타이머에서 호출)"""
@@ -1163,7 +1189,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
             self._try_jump()
             event.accept()
         elif key == Qt.Key_Escape:
-            self.stop_game()
+            self.pause_game()
             event.accept()
         else:
             event.ignore()
@@ -1211,7 +1237,10 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
     def mousePressEvent(self, event):
         """마우스 클릭 이벤트"""
-        if self.game_active and not self.mouse_captured:
+        if self.game_active and self.game_paused:
+            # 일시정지 상태에서 클릭하면 재개
+            self.resume_game()
+        elif self.game_active and not self.mouse_captured:
             # 게임 중 클릭하면 마우스 다시 캡처
             self.mouse_captured = True
             self.grabMouse()

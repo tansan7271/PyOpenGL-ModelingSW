@@ -341,6 +341,8 @@ class MiroWindow(QMainWindow):
         # OpenGL 위젯
         self.gl_widget = MiroOpenGLWidget()
         self.gl_widget.game_won.connect(self._on_game_won)
+        self.gl_widget.gamePaused.connect(self._on_game_paused)
+        self.gl_widget.gameResumed.connect(self._on_game_resumed)
         layout.addWidget(self.gl_widget, 1) # Stretch Factor 1 추가
 
     def _toggle_custom_setup(self):
@@ -507,13 +509,21 @@ class MiroWindow(QMainWindow):
     def _on_game_won(self):
         """게임 클리어 처리"""
         self.game_timer.stop()
-        
+
         if self.sound_manager:
             self.sound_manager.stop_stage_bgm() # BGM 중지
             self.sound_manager.play_sfx("clear")
-            
+
         QMessageBox.information(self, "Congratulations!", f"You escaped!\nTime: {self.lbl_timer.text()}")
         self._return_to_title()
+
+    def _on_game_paused(self):
+        """게임 일시정지 시 UI 타이머도 정지"""
+        self.game_timer.stop()
+
+    def _on_game_resumed(self):
+        """게임 재개 시 UI 타이머도 재시작"""
+        self.game_timer.start(1000)
 
     def _return_to_title(self):
         """타이틀 화면으로 복귀"""
