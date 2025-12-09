@@ -582,7 +582,7 @@ class MiroWindow(QMainWindow):
             self.gl_widget.load_maze(maze_file)
 
             # 게임 정보 업데이트
-            self.lbl_game_info.setText(f"Current Mode: {mode} | WASD: Move | Mouse: Look | Shift: use GAHO | ESC: Quit")
+            self.lbl_game_info.setText(f"Current Mode: {mode} | WASD: Move | Mouse: Look | Left Shift: use GAHO | ESC: Quit")
             
             # 커스텀 모드인 경우 추가 정보 표시
             if mode == "Custom":
