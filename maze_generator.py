@@ -67,14 +67,36 @@ class Maze:
             self._generate_floor_heights()
 
     def _generate_floor_heights(self):
-        """통로 셀에 무작위 바닥 높이를 생성합니다."""
+        """통로 셀에 무작위 바닥 높이를 생성합니다. 낮은 타일은 함정."""
         MIN_HEIGHT = 0.0
         MAX_HEIGHT = 0.5
+        TRAP_THRESHOLD = 0.1
 
+        # 1차: 모든 통로 셀에 무작위 높이 할당
         for y in range(self.height):
             for x in range(self.width):
                 if self.grid[y][x] == 0:  # 통로 셀만
                     self.floor_heights[(x, y)] = round(random.uniform(MIN_HEIGHT, MAX_HEIGHT), 2)
+
+        # 2차: 연속 함정 방지 - 함정이 인접하면 둘 다 일반으로 변경 후 하나만 함정으로
+        changed = True
+        while changed:
+            changed = False
+            trap_tiles = [(x, y) for (x, y), h in self.floor_heights.items() if h < TRAP_THRESHOLD]
+            for (x, y) in trap_tiles:
+                if self.floor_heights[(x, y)] >= TRAP_THRESHOLD:
+                    continue  # 이미 수정됨
+                for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                    neighbor = (x + dx, y + dy)
+                    if neighbor in self.floor_heights and self.floor_heights[neighbor] < TRAP_THRESHOLD:
+                        # 둘 다 일반 타일로 변경
+                        self.floor_heights[(x, y)] = round(random.uniform(TRAP_THRESHOLD, MAX_HEIGHT), 2)
+                        self.floor_heights[neighbor] = round(random.uniform(TRAP_THRESHOLD, MAX_HEIGHT), 2)
+                        # 둘 중 하나만 다시 함정으로 (랜덤 선택)
+                        chosen = random.choice([(x, y), neighbor])
+                        self.floor_heights[chosen] = round(random.uniform(MIN_HEIGHT, TRAP_THRESHOLD - 0.01), 2)
+                        changed = True
+                        break
 
     def _get_unvisited_neighbors(self, x, y):
         """

@@ -117,6 +117,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # VBO IDs (Batch Rendering용 리스트 구조로 변경 예정 - 초기화는 None)
         self.wall_batches = []  # [{'texture_id': id, 'vbo_v': v, 'vbo_uv': uv, 'vbo_n': n, 'count': c}, ...]
         self.floor_batches = []
+        self.trap_batches = []  # 함정 타일 (검은색)
         
         # 텍스처 ID 관리 (리스트)
         self.theme_textures = {
@@ -460,6 +461,21 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 2. 바닥 렌더링
         draw_batches(self.floor_batches)
 
+        # 3. 함정 타일 렌더링 (검은색, 텍스처 없음)
+        if self.trap_batches:
+            glDisable(GL_TEXTURE_2D)
+            glColor3f(0.0, 0.0, 0.0)  # 검은색
+            for batch in self.trap_batches:
+                glBindBuffer(GL_ARRAY_BUFFER, batch['vbo_vertices'])
+                glVertexPointer(3, GL_FLOAT, 0, None)
+
+                glBindBuffer(GL_ARRAY_BUFFER, batch['vbo_normals'])
+                glNormalPointer(GL_FLOAT, 0, None)
+
+                glDrawArrays(GL_QUADS, 0, batch['count'])
+            glColor3f(1.0, 1.0, 1.0)  # 색상 복원
+            glEnable(GL_TEXTURE_2D)
+
         # 정리
         glDisableClientState(GL_VERTEX_ARRAY)
         glDisableClientState(GL_NORMAL_ARRAY)
@@ -556,11 +572,14 @@ class MiroOpenGLWidget(QOpenGLWidget):
         glVertex2f(w - map_size - margin, margin + map_size)
         glEnd()
 
-        # 미로 그리드 렌더링
+        # 미로 그리드 렌더링 (180도 회전)
+        rows = len(self.maze_grid)
+        cols = len(self.maze_grid[0])
         for gz, row in enumerate(self.maze_grid):
             for gx, cell in enumerate(row):
-                x = w - map_size - margin + gx * cell_w
-                y = margin + gz * cell_h
+                # 180도 회전: (gx, gz) -> (cols-1-gx, rows-1-gz)
+                x = w - map_size - margin + (cols - 1 - gx) * cell_w
+                y = margin + (rows - 1 - gz) * cell_h
 
                 if cell == 1:  # 벽
                     glColor3f(0.3, 0.3, 0.3)
@@ -574,12 +593,12 @@ class MiroOpenGLWidget(QOpenGLWidget):
                 glVertex2f(x, y + cell_h)
                 glEnd()
 
-        # 골 표시 (초록)
+        # 골 표시 (초록) - 180도 회전 적용
         goal_gx = int((self.goal_pos[0] - self.grid_min_x) / self.grid_scale)
         goal_gz = int((self.goal_pos[1] - self.grid_min_z) / self.grid_scale)
         glColor3f(0.0, 1.0, 0.3)
-        gx_px = w - map_size - margin + goal_gx * cell_w
-        gz_px = margin + goal_gz * cell_h
+        gx_px = w - map_size - margin + (cols - 1 - goal_gx) * cell_w
+        gz_px = margin + (rows - 1 - goal_gz) * cell_h
         glBegin(GL_QUADS)
         glVertex2f(gx_px, gz_px)
         glVertex2f(gx_px + cell_w, gz_px)
@@ -819,6 +838,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
             # Python 측 참조만 정리
             self.wall_batches = []
             self.floor_batches = []
+            self.trap_batches = []
             self.vbo_wireframe_indices = None
             self.vbo_initialized = False
             self.wireframe_index_count = 0
@@ -828,9 +848,11 @@ class MiroOpenGLWidget(QOpenGLWidget):
         self.makeCurrent()
 
         # 배치가 생성된 경우 리스트 순회
-        all_batches = self.wall_batches + self.floor_batches
+        all_batches = self.wall_batches + self.floor_batches + self.trap_batches
         for batch in all_batches:
-            buffers = [batch['vbo_vertices'], batch['vbo_uvs'], batch['vbo_normals']]
+            buffers = [batch['vbo_vertices'], batch['vbo_normals']]
+            if 'vbo_uvs' in batch:
+                buffers.append(batch['vbo_uvs'])
             if glDeleteBuffers:  # 추가 안전 검사
                 glDeleteBuffers(len(buffers), buffers)
 
@@ -840,6 +862,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         self.wall_batches = []
         self.floor_batches = []
+        self.trap_batches = []
         self.vbo_wireframe_indices = None
 
         self.vbo_initialized = False
@@ -895,7 +918,39 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         self.wall_batches = []
         self.floor_batches = []
-        
+        self.trap_batches = []
+
+        # 함정 타일 분리: floor_height_map에서 낮은 높이(< 0.1) 타일을 함정으로
+        TRAP_THRESHOLD = 0.1
+        trap_faces = []
+        normal_floor_faces = []
+
+        if self.floor_height_map and self.original_maze_width and self.original_maze_height:
+            offset_x = -self.original_maze_width / 2.0
+            offset_z = -self.original_maze_height / 2.0
+
+            for face in floor_faces:
+                if len(face) < 4:
+                    normal_floor_faces.append(face)
+                    continue
+
+                # 면의 중심점 계산
+                cx = sum(self.maze_vertices[v_idx][0] for v_idx in face) / len(face)
+                cz = sum(self.maze_vertices[v_idx][2] for v_idx in face) / len(face)
+
+                # 그리드 좌표로 변환
+                gx = int(cx - offset_x)
+                gz = int(cz - offset_z)
+
+                # 해당 셀의 높이 확인
+                h = self.floor_height_map.get((gx, gz), 0.5)
+                if h < TRAP_THRESHOLD:
+                    trap_faces.append(face)
+                else:
+                    normal_floor_faces.append(face)
+        else:
+            normal_floor_faces = floor_faces
+
         # 헬퍼 함수: VBO 생성 및 등록
         def create_buffer(data):
             vbo = glGenBuffers(1)
@@ -1016,7 +1071,29 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 벽 배치 생성
         process_faces(wall_faces, self.theme_textures['walls'], self.wall_batches, is_wall=True)
         # 바닥 배치 생성
-        process_faces(floor_faces, self.theme_textures['floors'], self.floor_batches, is_wall=False)
+        process_faces(normal_floor_faces, self.theme_textures['floors'], self.floor_batches, is_wall=False)
+
+        # 함정 타일 배치 생성 (텍스처 없음, 검은색으로 렌더링됨)
+        if trap_faces:
+            v_list = []
+            n_list = []
+            for face in trap_faces:
+                if len(face) < 4:
+                    continue
+                for v_idx in face:
+                    v = self.maze_vertices[v_idx]
+                    v_list.extend([v[0], v[1], v[2]])
+                    n_list.extend([0, 1, 0])  # 바닥은 위쪽 방향 법선
+
+            if v_list:
+                v_data = np.array(v_list, dtype=np.float32)
+                n_data = np.array(n_list, dtype=np.float32)
+                trap_batch = {
+                    'vbo_vertices': create_buffer(v_data),
+                    'vbo_normals': create_buffer(n_data),
+                    'count': len(v_data) // 3
+                }
+                self.trap_batches.append(trap_batch)
 
         # Unbind
         glBindBuffer(GL_ARRAY_BUFFER, 0)
@@ -1264,6 +1341,9 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         # 아이템 수집 체크
         self._check_item_collision()
+
+        # 함정 타일 체크
+        self._check_trap()
 
         # 목표 도달 체크
         self._check_goal()
@@ -1625,6 +1705,42 @@ class MiroOpenGLWidget(QOpenGLWidget):
             gz = int((z - self.grid_min_z) / self.grid_scale)
 
         return self.floor_height_map.get((gx, gz), 0.0)
+
+    def _check_trap(self):
+        """함정 타일 체크 및 시작점 복귀 (지면에 있을 때만)"""
+        if not self.floor_height_map:
+            return
+
+        # 점프 중이면 함정 체크 안 함 (점프로 함정 회피 가능)
+        if not self.is_grounded:
+            return
+
+        # 현재 위치의 그리드 좌표 계산
+        x, z = self.player_pos[0], self.player_pos[2]
+        if self.original_maze_width and self.original_maze_height:
+            offset_x = -self.original_maze_width / 2.0
+            offset_z = -self.original_maze_height / 2.0
+            gx = int(x - offset_x)
+            gz = int(z - offset_z)
+        else:
+            gx = int((x - self.grid_min_x) / self.grid_scale)
+            gz = int((z - self.grid_min_z) / self.grid_scale)
+
+        # 통로가 아닌 위치(벽 속)에서는 함정 체크 안 함
+        if (gx, gz) not in self.floor_height_map:
+            return
+
+        TRAP_THRESHOLD = 0.1
+        current_height = self.floor_height_map[(gx, gz)]
+        if current_height < TRAP_THRESHOLD:
+            self._teleport_to_start()
+
+    def _teleport_to_start(self):
+        """플레이어를 시작 지점으로 이동"""
+        start_floor = self._get_floor_height_at(self.start_pos[0], self.start_pos[1])
+        self.player_pos = [self.start_pos[0], start_floor + PLAYER_HEIGHT, self.start_pos[1]]
+        self.player_velocity_y = 0.0
+        self.is_grounded = True
 
     def _process_vertical_physics(self):
         """중력, 점프, 지면 충돌 처리"""
