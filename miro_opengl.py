@@ -37,6 +37,12 @@ ITEM_BOB_AMPLITUDE = 0.15    # world units
 ITEM_HEIGHT = 0.5            # base height above floor
 ITEM_TARGET_SIZE_RATIO = 0.8 # 타일 크기 대비 아이템 크기 비율
 
+# 그림자 상수
+SHADOW_SEGMENTS = 16           # 원형 그림자 세그먼트 수
+SHADOW_BASE_RADIUS = 0.5       # 기본 그림자 반지름
+SHADOW_BASE_ALPHA = 0.4        # 기본 그림자 투명도
+SHADOW_Y_OFFSET = 0.01         # z-fighting 방지용 오프셋
+
 # 테마 설정
 THEMES = {
     "810-Gwan": "theme_810",
@@ -148,6 +154,10 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 캐싱된 Quadric (목표 지점 렌더링용)
         self.goal_quadric = None
 
+        # 스카이돔
+        self.skydome_texture = None
+        self.skydome_quadric = None
+
         # 아이템 시스템
         self.items = []              # [{'pos': [x, z], 'rotation': float, 'bob_phase': float, 'model_idx': int}]
         self.item_models = None      # [{'vertices': [...], 'faces': [...], 'normals': [...], 'color': (r,g,b)}] -> None으로 초기화
@@ -165,6 +175,8 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # GAHO 시스템
         self.gaho_score = 0
 
+        # 그림자 품질: "Off", "Low", "High"
+        self.shadow_quality = "Low"
 
     def set_theme(self, theme_name):
         """
@@ -232,6 +244,11 @@ class MiroOpenGLWidget(QOpenGLWidget):
         self.use_gpu_acceleration = enabled
         self.update()
 
+    def set_shadow_quality(self, quality):
+        """그림자 품질 설정: 'Off', 'Low', 'High'"""
+        self.shadow_quality = quality
+        self.update()
+
     def set_fog(self, enabled):
         """안개 켜기/끄기"""
         # 이글아이 모드 활성화 시 안개 켜기 요청이 들어오면,
@@ -286,6 +303,11 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 캐싱된 Quadric 생성 (목표 지점 렌더링용)
         self.goal_quadric = gluNewQuadric()
         gluQuadricNormals(self.goal_quadric, GLU_SMOOTH)
+
+        # 스카이돔 초기화
+        self.skydome_quadric = gluNewQuadric()
+        gluQuadricNormals(self.skydome_quadric, GLU_SMOOTH)
+        self._load_skydome_texture()
 
         # 아이템 모델 로드 (이미 설정된 경우 스킵)
         if self.item_models is None:
@@ -364,8 +386,59 @@ class MiroOpenGLWidget(QOpenGLWidget):
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
         
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data)
-        
+
         return texture_id
+
+    def _load_skydome_texture(self):
+        """스카이돔 텍스처 로드"""
+        skydome_path = os.path.join(os.path.dirname(__file__), "assets", "skydome", "sky_hdr.png")
+        self.skydome_texture = self._create_texture(skydome_path)
+        if self.skydome_texture:
+            print(f"Skydome texture loaded: {skydome_path}")
+        else:
+            print(f"Failed to load skydome texture: {skydome_path}")
+
+    def _draw_skydome(self):
+        """스카이돔 배경 렌더링 (테마에 따라 다르게 표시)"""
+        if not self.skydome_quadric:
+            return
+
+        glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT | GL_CURRENT_BIT)
+        glDepthMask(GL_FALSE)       # 깊이 버퍼 쓰기 비활성화
+        glDisable(GL_LIGHTING)      # 조명 비활성화 (원본 색상 유지)
+        glDisable(GL_FOG)           # 안개 비활성화
+
+        glPushMatrix()
+        glTranslatef(*self.player_pos)  # 플레이어 따라다님
+
+        if self.cheat_eagle_eye:
+            # 이글아이 모드: 스카이돔 그리지 않음 (glClearColor로 배경 처리)
+            glPopMatrix()
+            glPopAttrib()
+            return
+        elif self.current_theme == "810-Gwan":
+            # 810-Gwan 테마: 베이지색 단색 배경
+            glDisable(GL_TEXTURE_2D)
+            glColor4f(0.96, 0.93, 0.85, 1.0)  # 베이지색
+            gluQuadricTexture(self.skydome_quadric, GL_FALSE)
+        else:
+            # 다른 테마: 스카이돔 텍스처
+            if not self.skydome_texture:
+                glPopMatrix()
+                glPopAttrib()
+                return
+            glEnable(GL_TEXTURE_2D)
+            glBindTexture(GL_TEXTURE_2D, self.skydome_texture)
+            glColor4f(1.0, 1.0, 1.0, 1.0)
+            glRotatef(90, 1, 0, 0)       # 구체 방향 보정
+            glRotatef(180, 0, 0, 1)      # 텍스처 상하 반전 보정
+            gluQuadricTexture(self.skydome_quadric, GL_TRUE)
+
+        gluQuadricOrientation(self.skydome_quadric, GLU_INSIDE)
+        gluSphere(self.skydome_quadric, 90.0, 64, 32)
+
+        glPopMatrix()
+        glPopAttrib()
 
     def resizeGL(self, w, h):
         """뷰포트 크기 조정"""
@@ -378,9 +451,22 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
     def paintGL(self):
         """렌더링"""
+        # 이글아이 모드: 테마별 배경색 설정
+        if self.cheat_eagle_eye:
+            if self.current_theme == "810-Gwan":
+                glClearColor(0.96, 0.93, 0.85, 1.0)  # 베이지색
+            elif self.current_theme == "Inside Campus":
+                glClearColor(0.85, 0.85, 0.85, 1.0)  # 밝은 회색
+            elif self.current_theme == "Path to the Main Gate":
+                glClearColor(0.85, 0.75, 0.65, 1.0)  # 연한 갈색
+            else:  # Developer 등 기타 테마
+                glClearColor(0.7, 0.7, 0.7, 1.0)    # 기본 회색
+        else:
+            glClearColor(0.1, 0.1, 0.15, 1.0)  # 기본 배경색
+
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glLoadIdentity()
-        
+
         # 안개 상태 확인 (initializeGL에서 설정했더라도 확실하게)
         if self.fog_enabled:
             glEnable(GL_FOG)
@@ -390,12 +476,18 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 1인칭 카메라 설정
         self._setup_camera()
 
+        # 스카이돔 렌더링 (가장 먼저, 깊이 버퍼에 쓰지 않음)
+        self._draw_skydome()
+
         # 미로 렌더링
         self._draw_maze()
 
         # 날씨 렌더링 (투명도 처리를 위해 미로보다 나중에)
         if self.weather:
             self.weather.draw()
+
+        # 아이템 그림자 렌더링 (아이템보다 먼저)
+        self._draw_item_shadows()
 
         # 아이템 렌더링
         self._draw_items()
@@ -507,14 +599,16 @@ class MiroOpenGLWidget(QOpenGLWidget):
         glTranslatef(self.goal_pos[0], 0.0, self.goal_pos[1])
         glRotatef(-90, 1, 0, 0)  # X축 기준 -90도 회전 (Z축→Y축 방향으로)
 
-        # 반투명 효과를 위해 조명 끄기
+        # 반투명 효과를 위해 조명/텍스처 끄기
         glDisable(GL_LIGHTING)
+        glDisable(GL_TEXTURE_2D)
         glColor3f(0.0, 1.0, 0.3)  # 녹색 빛
 
         # 캐싱된 Quadric 사용 (매 프레임 생성/삭제 제거)
         if self.goal_quadric:
             gluCylinder(self.goal_quadric, 0.3, 0.3, 2.0, 16, 1)
 
+        glEnable(GL_TEXTURE_2D)
         glEnable(GL_LIGHTING)
         glPopMatrix()
 
@@ -630,6 +724,99 @@ class MiroOpenGLWidget(QOpenGLWidget):
         glPopMatrix()
         glMatrixMode(GL_MODELVIEW)
 
+    def _draw_item_shadow_blob(self, cx, cz, radius, alpha):
+        """단순 원형 그림자 (Low 품질)"""
+        glColor4f(0.0, 0.0, 0.0, alpha)
+        glBegin(GL_TRIANGLE_FAN)
+        glVertex3f(cx, SHADOW_Y_OFFSET, cz)
+        for i in range(SHADOW_SEGMENTS + 1):
+            angle = 2.0 * math.pi * i / SHADOW_SEGMENTS
+            glVertex3f(cx + radius * math.cos(angle), SHADOW_Y_OFFSET, cz + radius * math.sin(angle))
+        glEnd()
+
+    def _make_shadow_matrix(self, light, plane):
+        """평면 투영 행렬 생성 (High 품질용)"""
+        dot = plane[0]*light[0] + plane[1]*light[1] + plane[2]*light[2] + plane[3]*light[3]
+        return [
+            dot - light[0]*plane[0], -light[1]*plane[0], -light[2]*plane[0], -light[3]*plane[0],
+            -light[0]*plane[1], dot - light[1]*plane[1], -light[2]*plane[1], -light[3]*plane[1],
+            -light[0]*plane[2], -light[1]*plane[2], dot - light[2]*plane[2], -light[3]*plane[2],
+            -light[0]*plane[3], -light[1]*plane[3], -light[2]*plane[3], dot - light[3]*plane[3]
+        ]
+
+    def _draw_item_shadow_projected(self, item, model, scale, bob_offset):
+        """아이템 형태를 바닥에 투영한 그림자 (High 품질)"""
+        # 광원 위치 (아이템 바로 위에서 비추는 광원)
+        light_pos = [item['pos'][0], 10.0, item['pos'][1], 1.0]
+
+        # 투영 행렬 계산 (y=0 평면으로 투영)
+        shadow_matrix = self._make_shadow_matrix(light_pos, [0.0, 1.0, 0.0, 0.0])
+
+        glPushMatrix()
+
+        # 그림자 위치 (바닥에서 살짝 위)
+        glTranslatef(0, SHADOW_Y_OFFSET, 0)
+
+        # 투영 행렬 적용
+        glMultMatrixf(shadow_matrix)
+
+        # 원래 아이템 변환 적용 (min_y 보정 포함)
+        y_base = ITEM_HEIGHT + bob_offset - model.get('min_y', 0) * scale
+        glTranslatef(item['pos'][0], y_base, item['pos'][1])
+        glRotatef(item['rotation'], 0, 1, 0)
+        glScalef(scale, scale, scale)
+
+        # 검은색으로 아이템 형태 렌더링
+        glColor4f(0.0, 0.0, 0.0, SHADOW_BASE_ALPHA)
+
+        # Quad 면 렌더링
+        glBegin(GL_QUADS)
+        for face in model['faces']:
+            if len(face) == 4:
+                for vi in face:
+                    glVertex3fv(model['vertices'][vi])
+        glEnd()
+
+        # Triangle 면 렌더링
+        glBegin(GL_TRIANGLES)
+        for face in model['faces']:
+            if len(face) == 3:
+                for vi in face:
+                    glVertex3fv(model['vertices'][vi])
+        glEnd()
+
+        glPopMatrix()
+
+    def _draw_item_shadows(self):
+        """아이템 그림자 렌더링 (품질에 따라 분기)"""
+        if self.shadow_quality == "Off" or not self.items or not self.item_models:
+            return
+
+        glDisable(GL_LIGHTING)
+        glDisable(GL_TEXTURE_2D)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+        target_size = self.grid_scale * ITEM_TARGET_SIZE_RATIO
+
+        for item in self.items:
+            model = self.item_models[item['model_idx']]
+            bob_offset = math.sin(item['bob_phase']) * ITEM_BOB_AMPLITUDE
+            scale = target_size / model['model_size'] if model['model_size'] > 0 else 0.05
+            height = ITEM_HEIGHT + bob_offset
+
+            if self.shadow_quality == "Low":
+                # 원형 그림자 (타일 크기 기반)
+                radius = SHADOW_BASE_RADIUS * target_size * (1.0 + height * 0.3)
+                alpha = SHADOW_BASE_ALPHA * max(0.2, 1.0 - height * 0.3)
+                self._draw_item_shadow_blob(item['pos'][0], item['pos'][1], radius, alpha)
+            else:  # High
+                # 투영 그림자
+                self._draw_item_shadow_projected(item, model, scale, bob_offset)
+
+        glDisable(GL_BLEND)
+        glEnable(GL_TEXTURE_2D)
+
     def _draw_items(self):
         """아이템 렌더링 (3D 모델, 회전+상하 움직임)"""
         if not self.items or not self.item_models:
@@ -648,8 +835,11 @@ class MiroOpenGLWidget(QOpenGLWidget):
             # 적응형 스케일: 목표 크기 / 모델 원본 크기
             scale = target_size / model['model_size'] if model['model_size'] > 0 else 0.05
 
+            # min_y를 고려하여 모델 하단이 바닥 위에 오도록 보정
+            y_base = ITEM_HEIGHT + bob_offset - model.get('min_y', 0) * scale
+
             glPushMatrix()
-            glTranslatef(item['pos'][0], ITEM_HEIGHT + bob_offset, item['pos'][1])
+            glTranslatef(item['pos'][0], y_base, item['pos'][1])
             glRotatef(item['rotation'], 0, 1, 0)
             glScalef(scale, scale, scale)
 
@@ -894,6 +1084,8 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # OpenGL 컨텍스트 유효성 검사
         if not self.isValid():
             self.goal_quadric = None
+            self.skydome_quadric = None
+            self.skydome_texture = None
             self.item_models = []
             self.theme_textures['walls'] = []
             self.theme_textures['floors'] = []
@@ -904,6 +1096,15 @@ class MiroOpenGLWidget(QOpenGLWidget):
         if self.goal_quadric:
             gluDeleteQuadric(self.goal_quadric)
             self.goal_quadric = None
+
+        # 스카이돔 리소스 정리
+        if self.skydome_quadric:
+            gluDeleteQuadric(self.skydome_quadric)
+            self.skydome_quadric = None
+
+        if self.skydome_texture:
+            glDeleteTextures([self.skydome_texture])
+            self.skydome_texture = None
 
         # 아이템 모델 정리
         self.item_models = []
@@ -1682,10 +1883,12 @@ class MiroOpenGLWidget(QOpenGLWidget):
                     ys = [v[1] for v in vertices]
                     zs = [v[2] for v in vertices]
                     model_size = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
+                    min_y = min(ys)
                 else:
                     model_size = 1.0
+                    min_y = 0.0
 
-                return {'vertices': vertices, 'faces': faces, 'normals': normals, 'color': color, 'model_size': model_size}
+                return {'vertices': vertices, 'faces': faces, 'normals': normals, 'color': color, 'model_size': model_size, 'min_y': min_y}
         except Exception as e:
             print(f"아이템 파일 로드 실패: {file_path}, {e}")
             return None

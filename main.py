@@ -1,7 +1,7 @@
 import sys
 import os
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-                             QStackedWidget, QListWidget, QListWidgetItem, QGroupBox, QCheckBox, QLabel, QSlider)
+                             QStackedWidget, QListWidget, QListWidgetItem, QGroupBox, QCheckBox, QLabel, QSlider, QComboBox)
 from PyQt5.QtCore import Qt, QSize, QEvent, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QPalette
 from PyQt5.QtSvg import QSvgRenderer
@@ -15,7 +15,7 @@ from miro_sound import SoundManager
 class SettingsPage(QWidget):
     """전역 설정 페이지"""
     gpuAccelerationChanged = pyqtSignal(bool)
-    gpuAccelerationChanged = pyqtSignal(bool)
+    shadowQualityChanged = pyqtSignal(str)  # "Off", "Low", "High"
     volumeChanged = pyqtSignal(int)
     moveSpeedChanged = pyqtSignal(int) # 0 ~ 100% -> scale to 0.04 ~ 0.16
     mouseSensitivityChanged = pyqtSignal(int) # 0 ~ 100% -> scale to 0.05 ~ 0.30
@@ -40,6 +40,17 @@ class SettingsPage(QWidget):
         self.chk_gpu_accel.setToolTip("Enable VBO-based rendering for better performance")
         self.chk_gpu_accel.stateChanged.connect(self._on_gpu_accel_changed)
         graphics_layout.addWidget(self.chk_gpu_accel)
+
+        # Shadow Quality
+        shadow_layout = QHBoxLayout()
+        shadow_layout.addWidget(QLabel("Shadow Quality:"))
+        self.combo_shadow = QComboBox()
+        self.combo_shadow.addItems(["Off", "Low", "High"])
+        self.combo_shadow.setCurrentText("Low")
+        self.combo_shadow.currentTextChanged.connect(self._on_shadow_changed)
+        shadow_layout.addWidget(self.combo_shadow)
+        shadow_layout.addStretch()
+        graphics_layout.addLayout(shadow_layout)
 
         graphics_group.setLayout(graphics_layout)
         layout.addWidget(graphics_group)
@@ -112,6 +123,9 @@ class SettingsPage(QWidget):
     def _on_gpu_accel_changed(self, state):
         enabled = (state == Qt.Checked)
         self.gpuAccelerationChanged.emit(enabled)
+
+    def _on_shadow_changed(self, text):
+        self.shadowQualityChanged.emit(text)
 
     def _on_volume_changed(self, value):
         self.lbl_volume_value.setText(f"{value}%")
@@ -208,6 +222,7 @@ class MainContainer(QMainWindow):
         # 연결
         self.menu_list.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.settings_page.gpuAccelerationChanged.connect(self._on_gpu_accel_changed)
+        self.settings_page.shadowQualityChanged.connect(self._on_shadow_quality_changed)
         self.settings_page.volumeChanged.connect(self.sound_manager.set_master_volume)
         
         # 게임플레이 설정 연결 (퍼센트 -> 실제 값 변환)
@@ -373,6 +388,10 @@ class MainContainer(QMainWindow):
         self.modeler.glWidget.set_gpu_acceleration(enabled)
         # 미로 게임
         self.maze.gl_widget.set_gpu_acceleration(enabled)
+
+    def _on_shadow_quality_changed(self, quality):
+        """그림자 품질 설정을 미로 게임에 적용"""
+        self.maze.gl_widget.set_shadow_quality(quality)
 
 
 if __name__ == '__main__':

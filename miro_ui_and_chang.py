@@ -347,7 +347,7 @@ class MiroWindow(QMainWindow):
         self.check_height_variation.setChecked(False)
         self.check_height_variation.setToolTip("Only available when Wall Thickness is 1.0 (Creates uneven terrain)")
         details_layout.addWidget(self.check_height_variation)
-        
+
         custom_layout.addWidget(group_maze_details)
         
         custom_layout.addStretch()
@@ -379,10 +379,10 @@ class MiroWindow(QMainWindow):
         self.check_fog.setChecked(True)
         self.check_fog.stateChanged.connect(self._on_fog_changed)
         env_layout.addWidget(self.check_fog)
-        
+
         env_layout.addStretch() # 우측 여백
         custom_layout.addLayout(env_layout)
-        
+
         # 초기 상태 업데이트
         self._on_thickness_changed(self.spin_thickness.value())
         self._on_fog_changed(self.check_fog.isChecked())
