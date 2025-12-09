@@ -101,34 +101,60 @@ PyOpenGL-ModelingSW/
 - **PyQt5** - GUI 프레임워크
 - **NumPy** - 수치 연산
 
-## EXE 빌드 (Build)
+## 빌드 (Build)
 
 PyInstaller를 사용하여 실행 파일로 빌드할 수 있습니다:
 
 ```bash
 # PyInstaller 설치
 pip install pyinstaller
+```
 
-# 빌드 실행
+### Windows
+
+```bash
 pyinstaller main.spec
 ```
 
-빌드 결과물은 `dist/ModelingApp/` 폴더에 생성됩니다.
+빌드 결과물: `dist/EscapeFromCAU/EscapeFromCAU.exe`
+
+### macOS
+
+```bash
+pyinstaller main_macos.spec
+```
+
+빌드 결과물: `dist/EscapeFromCAU.app`
+
+> **참고**: PyInstaller는 크로스 컴파일을 지원하지 않습니다. 각 OS에서 직접 빌드해야 합니다.
 
 ## 배포 (Distribution)
 
+### Windows
+
 ```
-dist/ModelingApp/
-├── ModelingApp.exe      # 실행 파일
+dist/EscapeFromCAU/
+├── EscapeFromCAU.exe    # 실행 파일
 ├── _internal/           # Python 런타임 (자동 생성)
 ├── assets/              # 리소스 (아이콘, 사운드, 텍스처)
 └── datasets/            # 데이터 파일 (미로, 아이템)
 ```
 
-배포 시 `dist/ModelingApp/` 폴더 전체를 ZIP으로 압축하여 배포합니다.
+배포 시 `dist/EscapeFromCAU/` 폴더 전체를 ZIP으로 압축하여 배포합니다.
+
+### macOS
+
+```
+dist/EscapeFromCAU.app   # macOS 앱 번들
+```
+
+배포 시 `.app` 파일을 ZIP으로 압축하거나 DMG로 패키징하여 배포합니다.
+
+> **참고**: macOS에서 커스텀 미로는 `~/Library/Application Support/EscapeFromCAU/datasets/`에 저장됩니다.
 
 ### 실행 요구사항 (End Users)
 
-- Windows 10/11 (64-bit)
+- **Windows**: Windows 10/11 (64-bit)
+- **macOS**: macOS 10.13 이상
 - OpenGL 지원 그래픽 드라이버
 - Python 설치 불필요

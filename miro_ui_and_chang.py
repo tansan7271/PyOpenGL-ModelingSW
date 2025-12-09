@@ -12,7 +12,7 @@ from PyQt5.QtCore import Qt, QSize, QTimer
 from PyQt5.QtGui import QPixmap, QFont
 from miro_opengl import MiroOpenGLWidget
 from miro_story import MiroStoryWidget
-from resource_path import get_resource_path
+from resource_path import get_resource_path, get_user_data_path
 
 class MiroWindow(QMainWindow):
     """
@@ -561,11 +561,8 @@ class MiroWindow(QMainWindow):
                 maze = maze_generator.Maze(width, height, enable_height_variation=enable_height_var)
                 maze.generate()
                 
-                # 저장 경로 설정
-                datasets_dir = get_resource_path('datasets')
-                if not os.path.exists(datasets_dir):
-                    os.makedirs(datasets_dir)
-
+                # 저장 경로 설정 (사용자 데이터 경로 사용 - macOS 번들 호환)
+                datasets_dir = get_user_data_path('datasets')
                 custom_maze_file = os.path.join(datasets_dir, 'custom_maze.dat')
                 
                 # .dat 파일로 내보내기
