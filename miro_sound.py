@@ -1,6 +1,7 @@
 import os
 from PyQt5.QtCore import QUrl, QObject
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent, QMediaPlaylist
+from resource_path import get_resource_path
 
 class SoundManager(QObject):
     """
@@ -42,9 +43,7 @@ class SoundManager(QObject):
             self.sfx_pool.append(player)
         
         # 경로 설정 (assets/sounds 폴더 가정)
-        self.base_path = os.path.join(os.path.dirname(__file__), 'assets', 'sounds')
-        if not os.path.exists(self.base_path):
-            os.makedirs(self.base_path)
+        self.base_path = get_resource_path(os.path.join('assets', 'sounds'))
             
         # 플레이리스트 설정 (반복 재생을 위해)
         self._setup_playlists()

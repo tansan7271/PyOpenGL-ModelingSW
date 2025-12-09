@@ -4,13 +4,15 @@
 """
 
 import os
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-                             QStackedWidget, QGroupBox, QSpinBox, QCheckBox, QComboBox, 
+import glob
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+                             QStackedWidget, QGroupBox, QSpinBox, QCheckBox, QComboBox,
                              QSpacerItem, QSizePolicy, QMessageBox, QProgressBar)
 from PyQt5.QtCore import Qt, QSize, QTimer
 from PyQt5.QtGui import QPixmap, QFont
 from miro_opengl import MiroOpenGLWidget
 from miro_story import MiroStoryWidget
+from resource_path import get_resource_path
 
 class MiroWindow(QMainWindow):
     """
@@ -80,9 +82,7 @@ class MiroWindow(QMainWindow):
 
     def _init_sample_items(self):
         """샘플 아이템 리스트 초기화"""
-        import glob
-        
-        base_path = os.path.join(os.path.dirname(__file__), 'datasets')
+        base_path = get_resource_path('datasets')
         # item_*.dat 파일 찾기
         sample_files = sorted(glob.glob(os.path.join(base_path, "item_*.dat")))
         
@@ -217,7 +217,7 @@ class MiroWindow(QMainWindow):
         self.lbl_title_image.setAlignment(Qt.AlignCenter)
         
         # 이미지 로드 (assets/maze_title.png)
-        image_path = os.path.join(os.path.dirname(__file__), 'assets', 'maze_title.png')
+        image_path = get_resource_path(os.path.join('assets', 'maze_title.png'))
         if os.path.exists(image_path):
             pixmap = QPixmap(image_path)
             # 이미지 크기 조정 (가로 800px, 비율 유지)
@@ -522,21 +522,21 @@ class MiroWindow(QMainWindow):
             self.combo_theme.setCurrentText("810-Gwan")         # Theme: 810관
             self.gl_widget.set_fog(False)                       # Fog: OFF
             self.gl_widget.set_weather("Clear")                 # Weather: Clear
-            maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_01.dat')
+            maze_file = get_resource_path(os.path.join('datasets', 'maze_01.dat'))
             self._start_timer(mode, 60)
-            
+
         elif mode == "Stage 2":
             self.combo_theme.setCurrentText("Inside Campus")    # Theme: 교정 내부
             self.gl_widget.set_fog(True)                        # Fog: ON (분위기 조성)
             self.gl_widget.set_weather("Rain")                  # Weather: Rain
-            maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_02.dat')
+            maze_file = get_resource_path(os.path.join('datasets', 'maze_02.dat'))
             self._start_timer(mode, 90)
-            
+
         elif mode == "Stage 3":
             self.combo_theme.setCurrentText("Path to the Main Gate") # Theme: 정문
             self.gl_widget.set_fog(False)                            # Fog: OFF
             self.gl_widget.set_weather("Snow")                       # Weather: Snow
-            maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'maze_03.dat')
+            maze_file = get_resource_path(os.path.join('datasets', 'maze_03.dat'))
             self._start_timer(mode, 120)
         elif mode == "Custom":
             # 커스텀 모드 설정값 적용
@@ -562,10 +562,11 @@ class MiroWindow(QMainWindow):
                 maze.generate()
                 
                 # 저장 경로 설정
-                if not os.path.exists('datasets'):
-                    os.makedirs('datasets')
-                
-                custom_maze_file = os.path.join(os.path.dirname(__file__), 'datasets', 'custom_maze.dat')
+                datasets_dir = get_resource_path('datasets')
+                if not os.path.exists(datasets_dir):
+                    os.makedirs(datasets_dir)
+
+                custom_maze_file = os.path.join(datasets_dir, 'custom_maze.dat')
                 
                 # .dat 파일로 내보내기
                 maze.export_to_dat(custom_maze_file, wall_thickness=wall_thickness, wall_height=wall_height)

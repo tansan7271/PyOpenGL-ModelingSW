@@ -15,6 +15,7 @@ from PyQt5.QtGui import QCursor, QImage
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from miro_weather import WeatherSystem
+from resource_path import get_resource_path
 
 # 게임 상수
 PLAYER_HEIGHT = 0.8       # 눈높이
@@ -322,6 +323,14 @@ class MiroOpenGLWidget(QOpenGLWidget):
             self._create_vbos(self.wall_faces, self.floor_faces)
             self.doneCurrent()
 
+        # 아이템 그림자 VBO 생성 (High 품질용)
+        if self.item_models:
+            needs_shadow_vbo = any('shadow_vbo' not in m or m.get('shadow_vbo') is None for m in self.item_models)
+            if needs_shadow_vbo:
+                self.makeCurrent()
+                self._create_item_shadow_vbos()
+                self.doneCurrent()
+
     def _load_textures(self):
         """현재 테마에 맞는 텍스처 로드"""
         
@@ -331,23 +340,22 @@ class MiroOpenGLWidget(QOpenGLWidget):
             
         self.theme_textures['walls'] = []
         self.theme_textures['floors'] = []
-        
-        base_path = os.path.dirname(__file__)
-        assets_path = os.path.join(base_path, 'assets', 'textures')
-        
+
+        assets_path = get_resource_path(os.path.join('assets', 'textures'))
+
         if not os.path.exists(assets_path):
             print(f"Assets directory not found: {assets_path}")
             return
 
         theme_prefix = THEMES.get(self.current_theme, "theme_810")
-        
+
         # 벽 텍스처 로드 (glob 사용)
         wall_pattern = os.path.join(assets_path, f"{theme_prefix}_wall_*.png")
         wall_files = sorted(glob.glob(wall_pattern))
         for f in wall_files:
             t_id = self._create_texture(f)
             if t_id: self.theme_textures['walls'].append(t_id)
-            
+
         # 바닥 텍스처 로드
         floor_pattern = os.path.join(assets_path, f"{theme_prefix}_floor_*.png")
         floor_files = sorted(glob.glob(floor_pattern))
@@ -391,7 +399,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
     def _load_skydome_texture(self):
         """스카이돔 텍스처 로드"""
-        skydome_path = os.path.join(os.path.dirname(__file__), "assets", "skydome", "sky_hdr.png")
+        skydome_path = get_resource_path(os.path.join("assets", "skydome", "sky_hdr.png"))
         self.skydome_texture = self._create_texture(skydome_path)
         if self.skydome_texture:
             print(f"Skydome texture loaded: {skydome_path}")
@@ -744,13 +752,17 @@ class MiroOpenGLWidget(QOpenGLWidget):
             -light[0]*plane[3], -light[1]*plane[3], -light[2]*plane[3], dot - light[3]*plane[3]
         ]
 
-    def _draw_item_shadow_projected(self, item, model, scale, bob_offset):
-        """아이템 형태를 바닥에 투영한 그림자 (High 품질)"""
+    def _draw_item_shadow_projected(self, item, model, scale, bob_offset, stencil_ref):
+        """아이템 형태를 바닥에 투영한 그림자 (High 품질, VBO 사용)"""
         # 광원 위치 (아이템 바로 위에서 비추는 광원)
         light_pos = [item['pos'][0], 10.0, item['pos'][1], 1.0]
 
         # 투영 행렬 계산 (y=0 평면으로 투영)
         shadow_matrix = self._make_shadow_matrix(light_pos, [0.0, 1.0, 0.0, 0.0])
+
+        # Stencil 설정: 아이템별 고유 stencil 값 사용
+        glStencilFunc(GL_NOTEQUAL, stencil_ref, 0xFF)
+        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE)
 
         glPushMatrix()
 
@@ -766,25 +778,33 @@ class MiroOpenGLWidget(QOpenGLWidget):
         glRotatef(item['rotation'], 0, 1, 0)
         glScalef(scale, scale, scale)
 
+        # Z-fighting 방지: 깊이 버퍼 쓰기만 비활성화 (읽기는 유지하여 벽 뒤 가림)
+        glDepthMask(GL_FALSE)
+
         # 검은색으로 아이템 형태 렌더링
         glColor4f(0.0, 0.0, 0.0, SHADOW_BASE_ALPHA)
 
-        # Quad 면 렌더링
-        glBegin(GL_QUADS)
-        for face in model['faces']:
-            if len(face) == 4:
-                for vi in face:
-                    glVertex3fv(model['vertices'][vi])
-        glEnd()
+        # VBO 기반 렌더링 (삼각형)
+        if model.get('shadow_vbo') and model.get('shadow_vertex_count', 0) > 0:
+            glBindBuffer(GL_ARRAY_BUFFER, model['shadow_vbo'])
+            glEnableClientState(GL_VERTEX_ARRAY)
+            glVertexPointer(3, GL_FLOAT, 0, None)
+            glDrawArrays(GL_TRIANGLES, 0, model['shadow_vertex_count'])
+            glDisableClientState(GL_VERTEX_ARRAY)
+            glBindBuffer(GL_ARRAY_BUFFER, 0)
+        else:
+            # Fallback: Immediate mode (VBO 미생성 시)
+            glBegin(GL_TRIANGLES)
+            for face in model['faces']:
+                if len(face) >= 3:
+                    v0 = model['vertices'][face[0]]
+                    for i in range(1, len(face) - 1):
+                        glVertex3fv(v0)
+                        glVertex3fv(model['vertices'][face[i]])
+                        glVertex3fv(model['vertices'][face[i + 1]])
+            glEnd()
 
-        # Triangle 면 렌더링
-        glBegin(GL_TRIANGLES)
-        for face in model['faces']:
-            if len(face) == 3:
-                for vi in face:
-                    glVertex3fv(model['vertices'][vi])
-        glEnd()
-
+        glDepthMask(GL_TRUE)
         glPopMatrix()
 
     def _draw_item_shadows(self):
@@ -799,7 +819,12 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         target_size = self.grid_scale * ITEM_TARGET_SIZE_RATIO
 
-        for item in self.items:
+        # High 품질: Stencil 한 번만 clear
+        if self.shadow_quality == "High":
+            glEnable(GL_STENCIL_TEST)
+            glClear(GL_STENCIL_BUFFER_BIT)
+
+        for idx, item in enumerate(self.items):
             model = self.item_models[item['model_idx']]
             bob_offset = math.sin(item['bob_phase']) * ITEM_BOB_AMPLITUDE
             scale = target_size / model['model_size'] if model['model_size'] > 0 else 0.05
@@ -811,8 +836,12 @@ class MiroOpenGLWidget(QOpenGLWidget):
                 alpha = SHADOW_BASE_ALPHA * max(0.2, 1.0 - height * 0.3)
                 self._draw_item_shadow_blob(item['pos'][0], item['pos'][1], radius, alpha)
             else:  # High
-                # 투영 그림자
-                self._draw_item_shadow_projected(item, model, scale, bob_offset)
+                # 투영 그림자 (아이템별 stencil 값 사용)
+                stencil_ref = (idx + 1) % 255
+                self._draw_item_shadow_projected(item, model, scale, bob_offset, stencil_ref)
+
+        if self.shadow_quality == "High":
+            glDisable(GL_STENCIL_TEST)
 
         glDisable(GL_BLEND)
         glEnable(GL_TEXTURE_2D)
@@ -1062,6 +1091,9 @@ class MiroOpenGLWidget(QOpenGLWidget):
         if self.vbo_wireframe_indices:
             if glDeleteBuffers:
                 glDeleteBuffers(1, [self.vbo_wireframe_indices])
+
+        # 아이템 그림자 VBO 정리
+        self._cleanup_item_shadow_vbos()
 
         self.wall_batches = []
         self.floor_batches = []
@@ -1822,8 +1854,8 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
     def _load_item_models(self):
         """아이템 모델 로드 (datasets/item_*.dat) - Fallback"""
-        base_path = os.path.dirname(__file__)
-        item_files = sorted(glob.glob(os.path.join(base_path, 'datasets', 'item_*.dat')))
+        datasets_path = get_resource_path('datasets')
+        item_files = sorted(glob.glob(os.path.join(datasets_path, 'item_*.dat')))
 
         self.item_models = []
         for file_path in item_files:
@@ -1892,6 +1924,53 @@ class MiroOpenGLWidget(QOpenGLWidget):
         except Exception as e:
             print(f"아이템 파일 로드 실패: {file_path}, {e}")
             return None
+
+    def _create_item_shadow_vbos(self):
+        """아이템 모델의 그림자 VBO 생성 (GL 컨텍스트 필요)"""
+        if not self.item_models:
+            return
+
+        for model in self.item_models:
+            if 'shadow_vbo' in model and model['shadow_vbo'] is not None:
+                continue  # 이미 생성됨
+
+            # 면을 삼각형으로 변환하여 버텍스 배열 생성
+            vertex_data = []
+            for face in model['faces']:
+                if len(face) >= 3:
+                    # 삼각형 분할 (fan 방식)
+                    v0 = model['vertices'][face[0]]
+                    for i in range(1, len(face) - 1):
+                        v1 = model['vertices'][face[i]]
+                        v2 = model['vertices'][face[i + 1]]
+                        vertex_data.extend(v0)
+                        vertex_data.extend(v1)
+                        vertex_data.extend(v2)
+
+            if vertex_data:
+                vertex_array = np.array(vertex_data, dtype=np.float32)
+                vbo = glGenBuffers(1)
+                glBindBuffer(GL_ARRAY_BUFFER, vbo)
+                glBufferData(GL_ARRAY_BUFFER, vertex_array.nbytes, vertex_array, GL_STATIC_DRAW)
+                glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+                model['shadow_vbo'] = vbo
+                model['shadow_vertex_count'] = len(vertex_data) // 3
+            else:
+                model['shadow_vbo'] = None
+                model['shadow_vertex_count'] = 0
+
+    def _cleanup_item_shadow_vbos(self):
+        """아이템 그림자 VBO 정리"""
+        if not self.item_models:
+            return
+
+        for model in self.item_models:
+            if 'shadow_vbo' in model and model['shadow_vbo'] is not None:
+                if glDeleteBuffers:
+                    glDeleteBuffers(1, [model['shadow_vbo']])
+                model['shadow_vbo'] = None
+                model['shadow_vertex_count'] = 0
 
     def _calculate_item_normals(self, vertices, faces):
         """아이템 면 법선 계산"""

@@ -4,10 +4,11 @@
 """
 
 import os
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                              QSizePolicy, QFrame)
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap, QFont, QColor, QPainter
+from resource_path import get_resource_path
 
 class AspectRatioLabel(QLabel):
     """
@@ -121,7 +122,7 @@ class MiroStoryWidget(QWidget):
         """현재 페이지에 맞춰 UI(이미지, 버튼 상태)를 갱신합니다."""
         # 1. 이미지 로드
         image_name = f"story_{self.current_page}.png"
-        image_path = os.path.join(os.path.dirname(__file__), 'assets', image_name)
+        image_path = get_resource_path(os.path.join('assets', image_name))
         
         if os.path.exists(image_path):
             pixmap = QPixmap(image_path)

@@ -6,6 +6,9 @@ from PyQt5.QtCore import Qt, QSize, QEvent, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QPalette
 from PyQt5.QtSvg import QSvgRenderer
 
+# PyInstaller 빌드용 리소스 경로 헬퍼
+from resource_path import get_resource_path
+
 # 서브 애플리케이션 호출~!
 from modeler_ui_and_chang import MainWindow as ModelerWindow
 from miro_ui_and_chang import MiroWindow
@@ -332,9 +335,9 @@ class MainContainer(QMainWindow):
         Selected 상태: selected_color_code
         """
         # 1. 원본 Pixmap 로드
-        svg_path = os.path.join("assets", f"{name}.svg")
-        png_path = os.path.join("assets", f"{name}.png")
-        
+        svg_path = get_resource_path(os.path.join("assets", f"{name}.svg"))
+        png_path = get_resource_path(os.path.join("assets", f"{name}.png"))
+
         if os.path.exists(svg_path):
             icon = QIcon(svg_path)
             pixmap = icon.pixmap(64, 64) # 고해상도
