@@ -58,6 +58,9 @@ class MiroOpenGLWidget(QOpenGLWidget):
     # 시그널 정의
     gameFinished = pyqtSignal(bool, float) # 성공여부, 걸린시간
     gameStarted = pyqtSignal() # 게임 시작 시그널
+    # 치트 시그널
+    cheatPauseTimer = pyqtSignal(int)  # 타이머 일시정지 요청 (초)
+    cheatStateChanged = pyqtSignal(str, bool)  # (cheat_name, enabled)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -142,6 +145,12 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 아이템 시스템
         self.items = []              # [{'pos': [x, z], 'rotation': float, 'bob_phase': float, 'model_idx': int}]
         self.item_models = []        # [{'vertices': [...], 'faces': [...], 'normals': [...], 'color': (r,g,b)}]
+
+        # 치트 상태 (개발자 모드)
+        self.cheat_noclip = False      # 노클립 (벽 관통)
+        self.cheat_xray = False        # 엑스레이 (와이어프레임)
+        self.cheat_eagle_eye = False   # 이글아이 (탑뷰)
+        self.cheat_minimap = False     # 미니맵
 
     def set_theme(self, theme_name):
         """
@@ -343,32 +352,52 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 목표 지점 표시
         self._draw_goal()
 
+        # 이글아이 모드 플레이어 마커
+        self._draw_player_marker()
+
+        # 미니맵 렌더링 (2D 오버레이)
+        self._draw_minimap()
+
     def _setup_camera(self):
         """1인칭 카메라 설정"""
-        # 시선 방향 계산
-        dir_x = math.cos(self.player_pitch) * math.sin(self.player_yaw)
-        dir_y = math.sin(self.player_pitch)
-        dir_z = math.cos(self.player_pitch) * math.cos(self.player_yaw)
+        if self.cheat_eagle_eye:
+            # 이글아이 (탑뷰): 플레이어 위 15유닛에서 아래를 내려다봄
+            eye_x = self.player_pos[0]
+            eye_y = self.player_pos[1] + 15.0
+            eye_z = self.player_pos[2]
+            gluLookAt(eye_x, eye_y, eye_z,
+                      self.player_pos[0], self.player_pos[1], self.player_pos[2],
+                      0.0, 0.0, -1.0)  # up = -Z (북쪽 방향)
+        else:
+            # 기존 1인칭 카메라
+            # 시선 방향 계산
+            dir_x = math.cos(self.player_pitch) * math.sin(self.player_yaw)
+            dir_y = math.sin(self.player_pitch)
+            dir_z = math.cos(self.player_pitch) * math.cos(self.player_yaw)
 
-        eye_x, eye_y, eye_z = self.player_pos
-        center_x = eye_x + dir_x
-        center_y = eye_y + dir_y
-        center_z = eye_z + dir_z
+            eye_x, eye_y, eye_z = self.player_pos
+            center_x = eye_x + dir_x
+            center_y = eye_y + dir_y
+            center_z = eye_z + dir_z
 
-        gluLookAt(eye_x, eye_y, eye_z,
-                  center_x, center_y, center_z,
-                  0.0, 1.0, 0.0)
+            gluLookAt(eye_x, eye_y, eye_z,
+                      center_x, center_y, center_z,
+                      0.0, 1.0, 0.0)
 
     def _draw_maze(self):
         """VBO를 사용한 텍스처 미로 렌더링 (배치 렌더링)"""
         if not self.vbo_initialized:
             return
 
+        # 엑스레이 모드: 와이어프레임
+        if self.cheat_xray:
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+
         glEnable(GL_TEXTURE_2D)
         glEnableClientState(GL_VERTEX_ARRAY)
         glEnableClientState(GL_NORMAL_ARRAY)
         glEnableClientState(GL_TEXTURE_COORD_ARRAY)
-        
+
         glColor3f(1.0, 1.0, 1.0) # 텍스처 색상 혼합 방지 (흰색)
 
         # 헬퍼 함수: 배치 그리기
@@ -376,16 +405,16 @@ class MiroOpenGLWidget(QOpenGLWidget):
             for batch in batches:
                 if batch['count'] > 0 and batch['texture_id']:
                     glBindTexture(GL_TEXTURE_2D, batch['texture_id'])
-                    
+
                     glBindBuffer(GL_ARRAY_BUFFER, batch['vbo_vertices'])
                     glVertexPointer(3, GL_FLOAT, 0, None)
-                    
+
                     glBindBuffer(GL_ARRAY_BUFFER, batch['vbo_normals'])
                     glNormalPointer(GL_FLOAT, 0, None)
-                    
+
                     glBindBuffer(GL_ARRAY_BUFFER, batch['vbo_uvs'])
                     glTexCoordPointer(2, GL_FLOAT, 0, None)
-                    
+
                     glDrawArrays(GL_QUADS, 0, batch['count'])
 
         # 1. 벽 렌더링
@@ -401,6 +430,10 @@ class MiroOpenGLWidget(QOpenGLWidget):
         glDisable(GL_TEXTURE_2D)
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
+
+        # 와이어프레임 복원
+        if self.cheat_xray:
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
 
     def _draw_goal(self):
         """목표 지점 표시 (빛나는 기둥) - 캐싱된 Quadric 사용"""
@@ -418,6 +451,115 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         glEnable(GL_LIGHTING)
         glPopMatrix()
+
+    def _draw_player_marker(self):
+        """이글아이 모드에서 플레이어 위치 표시 (원)"""
+        if not self.cheat_eagle_eye:
+            return
+
+        glPushMatrix()
+        glTranslatef(self.player_pos[0], self.player_pos[1] + 0.1, self.player_pos[2])
+
+        glDisable(GL_LIGHTING)
+        glDisable(GL_TEXTURE_2D)
+        glColor3f(1.0, 0.2, 0.2)  # 빨간색
+
+        # 원 그리기 (GL_TRIANGLE_FAN)
+        radius = 0.3
+        segments = 16
+        glBegin(GL_TRIANGLE_FAN)
+        glVertex3f(0.0, 0.0, 0.0)  # 중심점
+        for i in range(segments + 1):
+            angle = 2.0 * math.pi * i / segments
+            x = radius * math.cos(angle)
+            z = radius * math.sin(angle)
+            glVertex3f(x, 0.0, z)
+        glEnd()
+
+        glEnable(GL_LIGHTING)
+        glPopMatrix()
+
+    def _draw_minimap(self):
+        """미니맵 렌더링 (우상단 2D 오버레이)"""
+        if not self.cheat_minimap or not self.maze_grid:
+            return
+
+        # 현재 행렬 저장
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+
+        # 2D 직교 투영 (픽셀 좌표계)
+        w, h = self.width(), self.height()
+        glOrtho(0, w, h, 0, -1, 1)
+
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
+
+        # 렌더링 상태 설정
+        glDisable(GL_DEPTH_TEST)
+        glDisable(GL_LIGHTING)
+        glDisable(GL_TEXTURE_2D)
+
+        # 미니맵 크기/위치
+        map_size = 150
+        margin = 10
+        cell_w = map_size / len(self.maze_grid[0])
+        cell_h = map_size / len(self.maze_grid)
+
+        # 반투명 배경
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glColor4f(0.0, 0.0, 0.0, 0.5)
+        glBegin(GL_QUADS)
+        glVertex2f(w - map_size - margin, margin)
+        glVertex2f(w - margin, margin)
+        glVertex2f(w - margin, margin + map_size)
+        glVertex2f(w - map_size - margin, margin + map_size)
+        glEnd()
+
+        # 미로 그리드 렌더링
+        for gz, row in enumerate(self.maze_grid):
+            for gx, cell in enumerate(row):
+                x = w - map_size - margin + gx * cell_w
+                y = margin + gz * cell_h
+
+                if cell == 1:  # 벽
+                    glColor3f(0.3, 0.3, 0.3)
+                else:  # 통로
+                    glColor3f(0.8, 0.8, 0.8)
+
+                glBegin(GL_QUADS)
+                glVertex2f(x, y)
+                glVertex2f(x + cell_w, y)
+                glVertex2f(x + cell_w, y + cell_h)
+                glVertex2f(x, y + cell_h)
+                glEnd()
+
+        # 골 표시 (초록)
+        goal_gx = int((self.goal_pos[0] - self.grid_min_x) / self.grid_scale)
+        goal_gz = int((self.goal_pos[1] - self.grid_min_z) / self.grid_scale)
+        glColor3f(0.0, 1.0, 0.3)
+        gx_px = w - map_size - margin + goal_gx * cell_w
+        gz_px = margin + goal_gz * cell_h
+        glBegin(GL_QUADS)
+        glVertex2f(gx_px, gz_px)
+        glVertex2f(gx_px + cell_w, gz_px)
+        glVertex2f(gx_px + cell_w, gz_px + cell_h)
+        glVertex2f(gx_px, gz_px + cell_h)
+        glEnd()
+
+        glDisable(GL_BLEND)
+
+        # 상태 복원
+        glEnable(GL_DEPTH_TEST)
+        glEnable(GL_LIGHTING)
+
+        glPopMatrix()
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
+        glMatrixMode(GL_MODELVIEW)
 
     def _draw_items(self):
         """아이템 렌더링 (3D 모델, 회전+상하 움직임)"""
@@ -1097,26 +1239,38 @@ class MiroOpenGLWidget(QOpenGLWidget):
         if not self.keys_pressed:
             return
 
-        # 이동 방향 (yaw 기준)
-        forward_x = math.sin(self.player_yaw)
-        forward_z = math.cos(self.player_yaw)
-        right_x = math.cos(self.player_yaw)
-        right_z = -math.sin(self.player_yaw)
-
         dx, dz = 0.0, 0.0
 
-        if Qt.Key_W in self.keys_pressed:
-            dx += forward_x * self.move_speed
-            dz += forward_z * self.move_speed
-        if Qt.Key_S in self.keys_pressed:
-            dx -= forward_x * self.move_speed
-            dz -= forward_z * self.move_speed
-        if Qt.Key_A in self.keys_pressed:
-            dx += right_x * self.move_speed
-            dz += right_z * self.move_speed
-        if Qt.Key_D in self.keys_pressed:
-            dx -= right_x * self.move_speed
-            dz -= right_z * self.move_speed
+        if self.cheat_eagle_eye:
+            # 이글아이 모드: 화면 기준 상하좌우 (고정 방향)
+            # W=위(-Z), S=아래(+Z), A=왼쪽(-X), D=오른쪽(+X)
+            if Qt.Key_W in self.keys_pressed:
+                dz -= self.move_speed
+            if Qt.Key_S in self.keys_pressed:
+                dz += self.move_speed
+            if Qt.Key_A in self.keys_pressed:
+                dx -= self.move_speed
+            if Qt.Key_D in self.keys_pressed:
+                dx += self.move_speed
+        else:
+            # 기존 1인칭 모드: yaw 기준 이동
+            forward_x = math.sin(self.player_yaw)
+            forward_z = math.cos(self.player_yaw)
+            right_x = math.cos(self.player_yaw)
+            right_z = -math.sin(self.player_yaw)
+
+            if Qt.Key_W in self.keys_pressed:
+                dx += forward_x * self.move_speed
+                dz += forward_z * self.move_speed
+            if Qt.Key_S in self.keys_pressed:
+                dx -= forward_x * self.move_speed
+                dz -= forward_z * self.move_speed
+            if Qt.Key_A in self.keys_pressed:
+                dx += right_x * self.move_speed
+                dz += right_z * self.move_speed
+            if Qt.Key_D in self.keys_pressed:
+                dx -= right_x * self.move_speed
+                dz -= right_z * self.move_speed
 
         # 충돌 감지 후 이동
         new_x = self.player_pos[0] + dx
@@ -1140,6 +1294,10 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
     def _check_collision(self, x, z):
         """충돌 감지 (True면 충돌) - 벽 충돌 + 높이 차이 충돌"""
+        # 노클립 모드면 충돌 무시
+        if self.cheat_noclip:
+            return False
+
         if not self.maze_grid:
             return False
 
@@ -1432,6 +1590,26 @@ class MiroOpenGLWidget(QOpenGLWidget):
             event.accept()
         elif key == Qt.Key_Escape:
             self.pause_game()
+            event.accept()
+        # 치트 키 (숫자키 1-5)
+        elif key == Qt.Key_1:
+            self.cheatPauseTimer.emit(10)  # 10초 퍼즈
+            event.accept()
+        elif key == Qt.Key_2:
+            self.cheat_minimap = not self.cheat_minimap
+            self.cheatStateChanged.emit('minimap', self.cheat_minimap)
+            event.accept()
+        elif key == Qt.Key_3:
+            self.cheat_noclip = not self.cheat_noclip
+            self.cheatStateChanged.emit('noclip', self.cheat_noclip)
+            event.accept()
+        elif key == Qt.Key_4:
+            self.cheat_xray = not self.cheat_xray
+            self.cheatStateChanged.emit('xray', self.cheat_xray)
+            event.accept()
+        elif key == Qt.Key_5:
+            self.cheat_eagle_eye = not self.cheat_eagle_eye
+            self.cheatStateChanged.emit('eagle', self.cheat_eagle_eye)
             event.accept()
         else:
             event.ignore()

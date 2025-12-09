@@ -114,40 +114,45 @@ class MiroWindow(QMainWindow):
 
         self.menu_cheats = QMenu(self.btn_cheats)
         
-        # 2.1 시간 조작 (Trigger) - 네이밍: "Time Boost" (스토리: +10s / 커스텀: -10s)
-        self.action_cheat_time = QAction("Time Boost (+10s / -10s)", self)
-        self.action_cheat_time.triggered.connect(self._cheat_time_boost)
-        self.menu_cheats.addAction(self.action_cheat_time)
-        
-        self.menu_cheats.addSeparator()
+        # 2.1 퍼즈 (Trigger) - 10초간 타이머 정지
+        self.action_cheat_pause = QAction("Pause Timer [1]", self)
+        self.action_cheat_pause.triggered.connect(lambda: self._on_cheat_pause_timer(10))
+        self.menu_cheats.addAction(self.action_cheat_pause)
 
         # 2.2 미니맵 (Toggle)
-        self.action_cheat_minimap = QAction("Show Minimap", self)
+        self.action_cheat_minimap = QAction("Show Minimap [2]", self)
         self.action_cheat_minimap.setCheckable(True)
         self.action_cheat_minimap.setChecked(False)
         self.action_cheat_minimap.toggled.connect(self._cheat_toggle_minimap)
         self.menu_cheats.addAction(self.action_cheat_minimap)
 
         # 2.3 고스트 모드 (Toggle) - 벽 뚫기
-        self.action_cheat_ghost = QAction("Ghost Mode (No Clip)", self)
+        self.action_cheat_ghost = QAction("Ghost Mode (No Clip) [3]", self)
         self.action_cheat_ghost.setCheckable(True)
         self.action_cheat_ghost.setChecked(False)
         self.action_cheat_ghost.toggled.connect(self._cheat_toggle_ghost)
         self.menu_cheats.addAction(self.action_cheat_ghost)
 
         # 2.4 투시 (Toggle) - 벽 투명화
-        self.action_cheat_xray = QAction("X-Ray Vision", self)
+        self.action_cheat_xray = QAction("X-Ray Vision [4]", self)
         self.action_cheat_xray.setCheckable(True)
         self.action_cheat_xray.setChecked(False)
         self.action_cheat_xray.toggled.connect(self._cheat_toggle_xray)
         self.menu_cheats.addAction(self.action_cheat_xray)
-        
+
         # 2.5 이글 아이 (Toggle) - 시야 상승
-        self.action_cheat_eagle = QAction("Eagle Eye View", self)
+        self.action_cheat_eagle = QAction("Eagle Eye View [5]", self)
         self.action_cheat_eagle.setCheckable(True)
         self.action_cheat_eagle.setChecked(False)
         self.action_cheat_eagle.toggled.connect(self._cheat_toggle_eagle)
         self.menu_cheats.addAction(self.action_cheat_eagle)
+
+        self.menu_cheats.addSeparator()
+
+        # 2.6 시간 조작 (Trigger) - 네이밍: "Time Boost" (스토리: +10s / 커스텀: -10s)
+        self.action_cheat_time = QAction("Time Boost (+10s / -10s)", self)
+        self.action_cheat_time.triggered.connect(self._cheat_time_boost)
+        self.menu_cheats.addAction(self.action_cheat_time)
 
         self.btn_cheats.setMenu(self.menu_cheats)
         toolbar.addWidget(self.btn_cheats)
@@ -427,6 +432,9 @@ class MiroWindow(QMainWindow):
         self.gl_widget.gameStarted.connect(lambda: self._update_ui_state(True)) # 게임 시작 시 UI 갱신 연결
         self.gl_widget.gamePaused.connect(self._on_game_paused)
         self.gl_widget.gameResumed.connect(self._on_game_resumed)
+        # 치트 시그널 연결
+        self.gl_widget.cheatPauseTimer.connect(self._on_cheat_pause_timer)
+        self.gl_widget.cheatStateChanged.connect(self._on_cheat_state_changed)
         layout.addWidget(self.gl_widget, 1) # Stretch Factor 1 추가
 
     def _toggle_custom_setup(self):
@@ -626,31 +634,62 @@ class MiroWindow(QMainWindow):
         self.stack.setCurrentIndex(0)
         self._update_ui_state(False) # 아이템 메뉴 활성화
 
-    # --- Cheats Logic Placeholders ---
+    # --- Cheats Logic ---
     def _cheat_time_boost(self):
-        """치트: 시간 추가/감소"""
-        print("Cheat Triggered: Time Boost")
-        # TODO: Implement time manipulation logic
-        
+        """치트: 시간 추가/감소 (스토리: +10s / 커스텀: -10s)"""
+        if not self.game_timer.isActive():
+            return
+        if self.is_custom_mode:
+            # 커스텀 모드: 시간 감소
+            self.current_time = max(0, self.current_time - 10)
+        else:
+            # 스토리 모드: 시간 추가
+            self.current_time = min(self.time_limit, self.current_time + 10)
+        self._update_timer_display()
+
+    def _on_cheat_pause_timer(self, seconds):
+        """치트: 타이머 일시정지 (숫자키 1)"""
+        if not self.game_timer.isActive():
+            return
+        self.game_timer.stop()
+        # seconds초 후 자동 재개
+        QTimer.singleShot(seconds * 1000, self._resume_timer_after_pause)
+
+    def _resume_timer_after_pause(self):
+        """퍼즈 종료 후 타이머 재개"""
+        if self.stack.currentIndex() == 1 and hasattr(self, 'gl_widget') and self.gl_widget.game_active:
+            self.game_timer.start(1000)
+
+    def _on_cheat_state_changed(self, cheat_name, enabled):
+        """OpenGL 위젯에서 치트 상태 변경 시 UI 동기화"""
+        if cheat_name == 'minimap':
+            self.action_cheat_minimap.setChecked(enabled)
+        elif cheat_name == 'noclip':
+            self.action_cheat_ghost.setChecked(enabled)
+        elif cheat_name == 'xray':
+            self.action_cheat_xray.setChecked(enabled)
+        elif cheat_name == 'eagle':
+            self.action_cheat_eagle.setChecked(enabled)
+
     def _cheat_toggle_minimap(self, enabled):
-        """치트: 미니맵 토글"""
-        print(f"Cheat Toggled: Minimap = {enabled}")
-        # TODO: Implement minimap display
-        
+        """치트: 미니맵 토글 (UI 메뉴에서 호출)"""
+        if hasattr(self, 'gl_widget'):
+            self.gl_widget.cheat_minimap = enabled
+
     def _cheat_toggle_ghost(self, enabled):
-        """치트: 고스트 모드 토글"""
-        print(f"Cheat Toggled: Ghost Mode = {enabled}")
-        # TODO: Implement no-clip logic
-        
+        """치트: 고스트 모드 토글 (UI 메뉴에서 호출)"""
+        if hasattr(self, 'gl_widget'):
+            self.gl_widget.cheat_noclip = enabled
+
     def _cheat_toggle_xray(self, enabled):
-        """치트: 투시 모드 토글"""
-        print(f"Cheat Toggled: X-Ray = {enabled}")
-        # TODO: Implement wall transparency
-        
+        """치트: 투시 모드 토글 (UI 메뉴에서 호출)"""
+        if hasattr(self, 'gl_widget'):
+            self.gl_widget.cheat_xray = enabled
+
     def _cheat_toggle_eagle(self, enabled):
-        """치트: 이글 아이 모드 토글"""
-        print(f"Cheat Toggled: Eagle Eye = {enabled}")
-        # TODO: Implement camera lift logic
+        """치트: 이글 아이 모드 토글 (UI 메뉴에서 호출)"""
+        if hasattr(self, 'gl_widget'):
+            self.gl_widget.cheat_eagle_eye = enabled
 
     # --- Items UI Logic ---
     def _refresh_items_menu(self):
