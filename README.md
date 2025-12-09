@@ -1,50 +1,102 @@
-# PyOpenGL SOR Modeler
+# PyOpenGL 3D Modeler & Maze Game
 
-PyOpenGL 기반의 SOR (Surface of Revolution) 모델링 소프트웨어입니다. 2D 프로파일을 그리고 회전시켜 3D 모델을 생성할 수 있습니다.
+![Python](https://img.shields.io/badge/Python-3.x-blue?logo=python&logoColor=white)
+![PyOpenGL](https://img.shields.io/badge/PyOpenGL-3.1-green)
+![PyQt5](https://img.shields.io/badge/PyQt5-5.x-41CD52?logo=qt&logoColor=white)
+
+PyOpenGL 기반의 3D 모델링 소프트웨어와 1인칭 미로 게임입니다.
 
 ## 주요 기능 (Features)
 
-*   **2D 프로파일링**: 마우스 클릭으로 2D 단면을 그릴 수 있습니다.
-*   **3D 모델 생성**: 2D 단면을 회전축(X축 또는 Y축)을 기준으로 회전시켜 3D 메쉬를 생성합니다.
-*   **렌더링 모드**: Wireframe, Solid, Flat Shading, Gouraud Shading 등 다양한 렌더링 모드를 지원합니다.
-*   **조명 효과**: 3D 뷰에서 조명 효과를 확인할 수 있습니다.
-*   **파일 저장/불러오기**: 작업한 모델 데이터를 저장하고 불러올 수 있습니다.
+### 🎨 3D 모델러
 
-## 요구 사항 (Prerequisites)
+- **SOR (Surface of Revolution)**: 2D 프로파일을 회전축 기준으로 회전시켜 3D 모델 생성
+- **Sweep Surface**: 2D 프로파일을 경로를 따라 압출 (twist, caps 옵션)
+- **렌더링 모드**: Wireframe, Solid, Flat Shading, Gouraud Shading
+- **GPU 가속**: VBO(Vertex Buffer Object) 기반 렌더링
+- **파일 저장/불러오기**: .dat 포맷 지원
 
-이 프로젝트는 Python 3.x 환경에서 실행됩니다. 다음 라이브러리가 필요합니다:
+### 🎮 미로 게임
 
-*   PyOpenGL
-*   PyQt5
+- **스토리 모드**: 3개의 스테이지 (810관, 캠퍼스, 정문 가는 길)
+- **커스텀 모드**: 미로 크기, 벽 두께/높이, 높이 변화 설정
+- **1인칭 시점**: WASD 이동, 점프, 충돌 감지
+- **아이템 & 스킬**: 수집 아이템과 6종류의 스킬 효과
+- **날씨 시스템**: 맑음, 비, 눈 효과
+
+### ⚙️ 설정
+
+- **그래픽**: GPU 가속, 그림자 품질 (Off/Low/High)
+- **오디오**: 마스터 볼륨 조절
+- **컨트롤**: 이동 속도, 마우스 감도
 
 ## 설치 방법 (Installation)
 
-1.  이 저장소를 클론하거나 다운로드합니다.
-2.  필요한 패키지를 설치합니다:
+### 요구 사항
+
+- Python 3.x
+- Windows / macOS / Linux
+
+### 설치
 
 ```bash
+# 저장소 클론
+git clone https://github.com/tansan7271/PyOpenGL-ModelingSW
+cd PyOpenGL-ModelingSW
+
+# 가상환경 생성 및 활성화
+python -m venv CG_Project
+
+# Windows
+CG_Project\Scripts\activate
+
+# macOS/Linux
+source CG_Project/bin/activate
+
+# 의존성 설치
 pip install -r requirements.txt
-```
 
-## 사용 방법 (Usage)
-
-1.  애플리케이션을 실행합니다:
-
-```bash
+# 실행
 python main.py
 ```
 
-2.  **2D 모드 (기본)**:
-    *   화면을 클릭하여 점을 추가하여 프로파일을 그립니다.
-    *   기존 점을 드래그하여 위치를 수정할 수 있습니다.
-    *   우측 패널에서 점 좌표를 직접 수정하거나 삭제할 수 있습니다.
+## 조작법 (Controls)
 
-3.  **3D 모드**:
-    *   상단 툴바의 '3D View' 버튼을 클릭하여 3D 모드로 전환합니다.
-    *   우측 패널에서 'Slices'(단면 개수)를 조절하여 모델의 해상도를 변경할 수 있습니다.
-    *   'Rotation Axis'에서 회전축(X 또는 Y)을 선택할 수 있습니다.
-    *   'Render Mode'에서 렌더링 스타일을 변경할 수 있습니다.
-    *   마우스 드래그로 3D 모델을 회전시켜 볼 수 있습니다.
+### 모델러
 
-4.  **저장 및 불러오기**:
-    *   툴바의 저장/불러오기 버튼을 사용하여 작업 내용을 파일로 관리할 수 있습니다.
+| 조작 | 설명 |
+|------|------|
+| 클릭 | 점 추가 (2D 모드) |
+| 드래그 | 점 이동 (2D 모드) |
+| 마우스 드래그 | 모델 회전 (3D 모드) |
+| 마우스 휠 | 줌 인/아웃 |
+
+### 미로 게임
+
+| 조작 | 설명 |
+|------|------|
+| W/A/S/D | 이동 |
+| 마우스 | 시점 회전 |
+| Space | 점프 |
+| ESC | 일시정지 |
+
+## 프로젝트 구조 (Project Structure)
+
+```
+PyOpenGL-ModelingSW/
+├── main.py                  # 진입점, MainContainer
+├── modeler_opengl.py        # 모델러 OpenGL 렌더링
+├── modeler_ui_and_chang.py  # 모델러 UI
+├── miro_opengl.py           # 미로 OpenGL 렌더링
+├── miro_ui_and_chang.py     # 미로 게임 UI
+├── maze_generator.py        # DFS 미로 생성 알고리즘
+├── requirements.txt         # 의존성 목록
+└── assets/                  # 리소스 (아이콘, 텍스처, 사운드)
+```
+
+## 기술 스택 (Tech Stack)
+
+- **Python 3.x** - 메인 언어
+- **PyOpenGL** - OpenGL 바인딩
+- **PyQt5** - GUI 프레임워크
+- **NumPy** - 수치 연산
