@@ -57,7 +57,7 @@ class MiroStoryWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_page = 0
-        self.total_pages = 7 # 총 7장으로 변경
+        self.total_pages = 8 # 총 8장으로 변경
         self._setup_ui()
 
     def _setup_ui(self):
