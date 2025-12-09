@@ -149,8 +149,11 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 치트 상태 (개발자 모드)
         self.cheat_noclip = False      # 노클립 (벽 관통)
         self.cheat_xray = False        # 엑스레이 (와이어프레임)
+
         self.cheat_eagle_eye = False   # 이글아이 (탑뷰)
         self.cheat_minimap = False     # 미니맵
+        
+        self.prev_fog_state = False    # 이글아이 전환 전 안개 상태 저장용
 
     def set_theme(self, theme_name):
         """
@@ -178,6 +181,33 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 캐싱된 Quadric (목표 지점 렌더링용)
         self.goal_quadric = None
 
+        self.doneCurrent()
+        self.update()
+
+    def set_eagle_eye_mode(self, enabled):
+        """이글아이 모드 설정 (안개 자동 제어 포함)"""
+        # 상태가 같으면 무시
+        if self.cheat_eagle_eye == enabled:
+            return
+
+        self.cheat_eagle_eye = enabled
+
+        if enabled:
+            # 이글아이 켜짐: 현재 안개 상태 저장 후 끄기
+            self.prev_fog_state = self.fog_enabled
+            if self.fog_enabled:
+                self.set_fog(False)
+                print("[EagleEye] Fog disabled automatically.")
+        else:
+            # 이글아이 꺼짐: 이전 안개 상태 복원
+            if self.prev_fog_state:
+                self.set_fog(True)
+                print("[EagleEye] Fog restored.")
+        
+        # 시그널 발생
+        self.cheatStateChanged.emit('eagle', self.cheat_eagle_eye)
+        self.update()
+
     def set_move_speed(self, speed):
         """이동 속도 설정"""
         self.move_speed = speed
@@ -193,6 +223,13 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
     def set_fog(self, enabled):
         """안개 켜기/끄기"""
+        # 이글아이 모드 활성화 시 안개 켜기 요청이 들어오면,
+        # '이전 상태'만 업데이트하고 실제 안개는 켜지 않음 (시야 확보)
+        if self.cheat_eagle_eye and enabled:
+            self.prev_fog_state = True
+            print("[EagleEye] Fog enable requested (blocked by Eagle Eye). Saved state: True")
+            return
+
         self.fog_enabled = enabled
         if self.isValid():
             self.makeCurrent()
@@ -1608,8 +1645,10 @@ class MiroOpenGLWidget(QOpenGLWidget):
             self.cheatStateChanged.emit('xray', self.cheat_xray)
             event.accept()
         elif key == Qt.Key_5:
-            self.cheat_eagle_eye = not self.cheat_eagle_eye
-            self.cheatStateChanged.emit('eagle', self.cheat_eagle_eye)
+            # self.cheat_eagle_eye = not self.cheat_eagle_eye
+            # self.cheatStateChanged.emit('eagle', self.cheat_eagle_eye)
+            # 스마트 안개 로직 적용을 위해 메서드 호출
+            self.set_eagle_eye_mode(not self.cheat_eagle_eye)
             event.accept()
         else:
             event.ignore()

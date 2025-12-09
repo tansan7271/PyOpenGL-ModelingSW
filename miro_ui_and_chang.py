@@ -689,7 +689,8 @@ class MiroWindow(QMainWindow):
     def _cheat_toggle_eagle(self, enabled):
         """치트: 이글 아이 모드 토글 (UI 메뉴에서 호출)"""
         if hasattr(self, 'gl_widget'):
-            self.gl_widget.cheat_eagle_eye = enabled
+            # 스마트 안개 로직이 포함된 메서드 호출
+            self.gl_widget.set_eagle_eye_mode(enabled)
 
     # --- Items UI Logic ---
     def _refresh_items_menu(self):
