@@ -19,6 +19,7 @@ class SoundManager(QObject):
         
         # 0. 마스터 볼륨 (0~100)
         self.master_volume = 100
+        self.ducking_factor = 1.0 # 스킬 발동 시 BGM 줄임 (0.0~1.0)
         
         # 1. 타이틀 BGM (Clean 버전)
         self.player_title_clean = QMediaPlayer()
@@ -33,8 +34,12 @@ class SoundManager(QObject):
         self.player_stage.setVolume(int(self.master_volume * 0.8)) # 80%
         
         # 4. 효과음 (SFX)
-        self.player_sfx = QMediaPlayer()
-        self.player_sfx.setVolume(self.master_volume)
+        # 4. 효과음 (SFX) - 다중 재생을 위한 풀(Pool) 방식
+        self.sfx_pool = []
+        for _ in range(8): # 8개 채널
+            player = QMediaPlayer()
+            player.setVolume(self.master_volume)
+            self.sfx_pool.append(player)
         
         # 경로 설정 (assets/sounds 폴더 가정)
         self.base_path = os.path.join(os.path.dirname(__file__), 'assets', 'sounds')
@@ -105,8 +110,20 @@ class SoundManager(QObject):
         self.set_muffled(not is_clean_active)
         
         # 스테이지 BGM과 SFX도 업데이트
-        self.player_stage.setVolume(int(self.master_volume * 0.8))
-        self.player_sfx.setVolume(self.master_volume)
+        # 스테이지 BGM과 SFX도 업데이트
+        self._update_stage_volume()
+        for player in self.sfx_pool:
+            player.setVolume(self.master_volume)
+
+    def set_ducking(self, factor):
+        """BGM 일시적 볼륨 조절 (Ducking)"""
+        self.ducking_factor = factor
+        self._update_stage_volume()
+        
+    def _update_stage_volume(self):
+        """스테이지 BGM 볼륨 실제 적용"""
+        vol = int(self.master_volume * 0.8 * self.ducking_factor)
+        self.player_stage.setVolume(vol)
 
     def set_muffled(self, is_muffled):
         """
@@ -147,7 +164,7 @@ class SoundManager(QObject):
         content = self._get_media_content(bgm_file)
         if not content.isNull():
             self.playlist_stage.addMedia(content)
-            self.player_stage.setVolume(int(self.master_volume * 0.8)) # 볼륨 확인
+            self._update_stage_volume()
             self.player_stage.play()
         else:
             print(f"BGM file not found: {bgm_file}")
@@ -164,20 +181,46 @@ class SoundManager(QObject):
             filename = "sfx_clear.wav"
         elif sfx_type == "gameover":
             filename = "sfx_gameover.wav"
+        elif sfx_type == "item_get":
+            filename = "sfx_item_get.wav"
+        elif sfx_type == "skill_activate":
+            filename = "sfx_skill_activate.wav"
+        elif sfx_type == "time_boost":
+            filename = "sfx_time_boost.wav"
+        elif sfx_type.endswith("_start") or sfx_type.endswith("_end"):
+            # 일반화된 처리: sfx_ghost_start.wav 등
+            filename = f"sfx_{sfx_type}.wav"
             
         content = self._get_media_content(filename)
         if not content.isNull():
-            self.player_sfx.setMedia(content)
-            self.player_sfx.setVolume(self.master_volume)
-            self.player_sfx.play()
+            # 사용 가능한 플레이어 찾기
+            player_to_use = None
+            for player in self.sfx_pool:
+                if player.state() == QMediaPlayer.StoppedState:
+                    player_to_use = player
+                    break
+            
+            # 모두 사용 중이면 첫 번째꺼 사용 (Interruption)
+            if player_to_use is None:
+                player_to_use = self.sfx_pool[0]
+                
+            player_to_use.setMedia(content)
+            player_to_use.setVolume(self.master_volume)
+            player_to_use.play()
 
     def stop_stage_bgm(self):
         """스테이지 BGM 중지"""
         self.player_stage.stop()
+
+
+    def stop_sfx_pool(self):
+        """SFX 풀의 모든 재생 중지"""
+        for player in self.sfx_pool:
+            player.stop()
 
     def stop_all(self):
         """모든 사운드 중지"""
         self.player_title_clean.stop()
         self.player_title_muffled.stop()
         self.player_stage.stop()
-        self.player_sfx.stop()
+        self.stop_sfx_pool()

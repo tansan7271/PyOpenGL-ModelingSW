@@ -56,11 +56,16 @@ class MiroOpenGLWidget(QOpenGLWidget):
     gamePaused = pyqtSignal()
     gameResumed = pyqtSignal()
     # 시그널 정의
-    gameFinished = pyqtSignal(bool, float) # 성공여부, 걸린시간
-    gameStarted = pyqtSignal() # 게임 시작 시그널
-    # 치트 시그널
-    cheatPauseTimer = pyqtSignal(int)  # 타이머 일시정지 요청 (초)
-    cheatStateChanged = pyqtSignal(str, bool)  # (cheat_name, enabled)
+    gameFinished = pyqtSignal(bool) # True: Win, False: Loss
+    gameStarted = pyqtSignal()      # 게임 시작 알림
+    
+    # 치트 관련 시그널
+    cheatPauseTimer = pyqtSignal(int)         # 타이머 일시정지 요청
+    cheatStateChanged = pyqtSignal(str, bool) # 치트 상태 변경 알림
+    
+    # GAHO 시스템
+    itemCollected = pyqtSignal()    # 아이템 획득 시그널
+    skillActivated = pyqtSignal()   # 스킬 발동 시그널
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -145,7 +150,8 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         # 아이템 시스템
         self.items = []              # [{'pos': [x, z], 'rotation': float, 'bob_phase': float, 'model_idx': int}]
-        self.item_models = []        # [{'vertices': [...], 'faces': [...], 'normals': [...], 'color': (r,g,b)}]
+        self.item_models = None      # [{'vertices': [...], 'faces': [...], 'normals': [...], 'color': (r,g,b)}] -> None으로 초기화
+        self.spawn_count = 3         # 기본 스폰 개수
 
         # 치트 상태 (개발자 모드)
         self.cheat_noclip = False      # 노클립 (벽 관통)
@@ -155,6 +161,10 @@ class MiroOpenGLWidget(QOpenGLWidget):
         self.cheat_minimap = False     # 미니맵
         
         self.prev_fog_state = False    # 이글아이 전환 전 안개 상태 저장용
+
+        # GAHO 시스템
+        self.gaho_score = 0
+
 
     def set_theme(self, theme_name):
         """
@@ -277,15 +287,18 @@ class MiroOpenGLWidget(QOpenGLWidget):
         self.goal_quadric = gluNewQuadric()
         gluQuadricNormals(self.goal_quadric, GLU_SMOOTH)
 
-        # 아이템 모델 로드
-        self._load_item_models()
+        # 아이템 모델 로드 (이미 설정된 경우 스킵)
+        if self.item_models is None:
+            self._load_item_models()
 
         # 텍스처 로드
         self._load_textures()
 
         # 지연된 VBO 생성 (데이터는 로드되었으나 VBO가 없는 경우)
         if self.maze_vertices and not self.vbo_initialized:
+            self.makeCurrent()
             self._create_vbos(self.wall_faces, self.floor_faces)
+            self.doneCurrent()
 
     def _load_textures(self):
         """현재 테마에 맞는 텍스처 로드"""
@@ -1266,7 +1279,10 @@ class MiroOpenGLWidget(QOpenGLWidget):
         self.game_active = True
         self.game_paused = False
 
-        # 아이템 스폰
+        # 아이템 스폰 (UI에서 설정된 모델이 있으면 그것을 사용, 없으면 빈 리스트대로 진행)
+        # if not self.item_models:
+        #      self._load_item_models()
+             
         self._spawn_items()
 
         # 마우스 캡처
@@ -1278,12 +1294,15 @@ class MiroOpenGLWidget(QOpenGLWidget):
         # 게임 루프 시작
         self.game_timer.start(GAME_TICK_MS)
         self.gameStarted.emit() # UI 등 외부에 알림
+        
+        # GAHO 초기화
+        self.gaho_score = 0
+        
         print("게임 시작!")
 
         # 포커스 설정
         self.setFocus()
 
-        print("게임 시작!")
 
     def stop_game(self):
         """게임 중지"""
@@ -1552,11 +1571,11 @@ class MiroOpenGLWidget(QOpenGLWidget):
                     if dist_start_sq > 2.25 and dist_goal_sq > 2.25:  # 1.5^2 = 2.25
                         passages.append((x, z))
 
-        # 무작위 3개 위치 + 무작위 3개 모델 선택
-        count = min(ITEM_COUNT, len(passages))
-        if count > 0:
-            selected_pos = random.sample(passages, count)
-            selected_models = random.sample(range(len(self.item_models)), min(count, len(self.item_models)))
+        # 무작위 N개 위치 + 무작위 N개 모델 선택
+        spawn_limit = min(self.spawn_count, len(passages))
+        if spawn_limit > 0:
+            selected_pos = random.sample(passages, spawn_limit)
+            selected_models = random.sample(range(len(self.item_models)), min(spawn_limit, len(self.item_models)))
 
             for i, (x, z) in enumerate(selected_pos):
                 self.items.append({
@@ -1583,9 +1602,25 @@ class MiroOpenGLWidget(QOpenGLWidget):
             dist_sq = (px - ix) ** 2 + (pz - iz) ** 2
             if dist_sq < radius_sq:
                 self.items.pop(i)
+                # GAHO 점수 증가 & 시그널 발생
+                self.gaho_score += 1
+                self.itemCollected.emit()
+
+    def set_active_item_models(self, file_paths):
+        """UI에서 선택된 아이템 모델 파일들만 로드"""
+        self.item_models = []
+        for file_path in file_paths:
+            if os.path.exists(file_path):
+                model = self._parse_item_file(file_path)
+                if model:
+                    self.item_models.append(model)
+
+    def set_spawn_count(self, count):
+        """아이템 스폰 개수 설정"""
+        self.spawn_count = count
 
     def _load_item_models(self):
-        """아이템 모델 로드 (datasets/item_*.dat)"""
+        """아이템 모델 로드 (datasets/item_*.dat) - Fallback"""
         base_path = os.path.dirname(__file__)
         item_files = sorted(glob.glob(os.path.join(base_path, 'datasets', 'item_*.dat')))
 
@@ -1594,7 +1629,6 @@ class MiroOpenGLWidget(QOpenGLWidget):
             model = self._parse_item_file(file_path)
             if model:
                 self.item_models.append(model)
-        print(f"아이템 모델 {len(self.item_models)}개 로드 완료")
 
     def _parse_item_file(self, file_path):
         """단일 아이템 .dat 파일 파싱"""
@@ -1839,6 +1873,12 @@ class MiroOpenGLWidget(QOpenGLWidget):
             # self.cheatStateChanged.emit('eagle', self.cheat_eagle_eye)
             # 스마트 안개 로직 적용을 위해 메서드 호출
             self.set_eagle_eye_mode(not self.cheat_eagle_eye)
+            event.accept()
+        elif key == Qt.Key_Shift:
+            # Shift: GAHO 스킬 발동
+            if self.gaho_score > 0:
+                self.gaho_score -= 1
+                self.skillActivated.emit()
             event.accept()
         else:
             event.ignore()

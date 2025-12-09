@@ -21,11 +21,18 @@ class MiroWindow(QMainWindow):
         super().__init__()
         self.sound_manager = sound_manager
         
-        # 아이템 리스트 초기화
+        # 모델 리스트 초기화
         # 구조: {'name': str, 'path': str, 'is_sample': bool, 'checked': bool}
-        self.items_list = []
+        self.models_list = []      # (legacy name used internally) -> items_list alias
+        self.items_list = []       # Main list
         self.items_spawn_enabled = True # 마스터 스위치
+        self.spawn_count = 3       # 아이템 스폰 개수
         self._init_sample_items()
+        
+        # 스킬 활성화 상태 (BGM Ducking 용)
+        self.active_skill_count = 0
+        self.is_cheat_paused = False # 치트로 인한 타이머 정지 상태
+        self.game_session_id = 0 # 게임 세션 ID (타이머 콜백 제어용)
 
         self.game_timer = QTimer()
         self.game_timer.timeout.connect(self._update_timer)
@@ -153,6 +160,25 @@ class MiroWindow(QMainWindow):
         self.action_cheat_time = QAction("Time Boost (+10s / -10s)", self)
         self.action_cheat_time.triggered.connect(self._cheat_time_boost)
         self.menu_cheats.addAction(self.action_cheat_time)
+
+        self.menu_cheats.addSeparator()
+        self.menu_cheats.addSection("Simulation (Trigger)")
+        
+        # 시뮬레이션 버튼들 (일회성 발동)
+        sim_effects = [
+            ("Simulate: Time Pause", "time_pause"),
+            ("Simulate: Time Boost", "time_boost"),
+            ("Simulate: Minimap", "minimap"),
+            ("Simulate: Ghost Mode", "ghost"),
+            ("Simulate: X-Ray", "xray"),
+            ("Simulate: Eagle Eye", "eagle")
+        ]
+        
+        for name, effect in sim_effects:
+            action = QAction(name, self)
+            # lambda의 closure 문제 방지를 위해 default argument 사용
+            action.triggered.connect(lambda checked, eff=effect: self._activate_specific_skill(eff))
+            self.menu_cheats.addAction(action)
 
         self.btn_cheats.setMenu(self.menu_cheats)
         toolbar.addWidget(self.btn_cheats)
@@ -409,12 +435,28 @@ class MiroWindow(QMainWindow):
         self.lbl_game_info.setFont(font)
         self.lbl_game_info.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         
+        # GAHO 스코어 라벨 (Bold)
+        self.lbl_gaho = QLabel("Seonbae's GAHO: 0")
+        font_gaho = QFont()
+        font_gaho.setBold(True)
+        font_gaho.setPointSize(12)
+        self.lbl_gaho.setFont(font_gaho)
+        self.lbl_gaho.setStyleSheet("margin-left: 10px;")
+        
+        # GAHO 메시지 라벨 (효과 발동 시 표시)
+        self.lbl_gaho_message = QLabel("")
+        self.lbl_gaho_message.setStyleSheet("color: red; font-weight: bold; margin-left: 10px;")
+
         # 타이머 라벨 (우측 상단)
         self.lbl_timer = QLabel("00:00")
         # 기본 폰트 사용, 정렬만 설정
         self.lbl_timer.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         
+        self.lbl_timer.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        
         info_bar.addWidget(self.lbl_game_info)
+        info_bar.addWidget(self.lbl_gaho) # GAHO 라벨 추가
+        info_bar.addWidget(self.lbl_gaho_message) # 메시지 라벨 추가
         info_bar.addStretch()
         info_bar.addWidget(self.lbl_timer)
         
@@ -435,6 +477,11 @@ class MiroWindow(QMainWindow):
         # 치트 시그널 연결
         self.gl_widget.cheatPauseTimer.connect(self._on_cheat_pause_timer)
         self.gl_widget.cheatStateChanged.connect(self._on_cheat_state_changed)
+        
+        # GAHO 시스템 연결
+        self.gl_widget.itemCollected.connect(self._on_item_collected)
+        self.gl_widget.skillActivated.connect(self._on_skill_activated)
+        
         layout.addWidget(self.gl_widget, 1) # Stretch Factor 1 추가
 
     def _toggle_custom_setup(self):
@@ -453,9 +500,21 @@ class MiroWindow(QMainWindow):
             self.stack.setCurrentWidget(self.story_widget)
             return
 
-        # 스테이지 BGM 재생
         if self.sound_manager:
             self.sound_manager.play_stage_bgm(mode)
+            
+        self.game_session_id += 1 # 새 세션 시작
+
+        # 아이템 스폰 설정 적용
+        active_models = []
+        if self.items_spawn_enabled:
+            for item in self.items_list:
+                if item['checked']:
+                    active_models.append(item['path'])
+        
+        # 선택된 아이템이 없으면 빈 리스트 전달 -> 스폰되지 않음
+        self.gl_widget.set_active_item_models(active_models)
+        self.gl_widget.set_spawn_count(self.spawn_count) # 설정된 개수 전달
 
         # Stage별 미로 파일 경로 설정
         maze_file = None
@@ -523,7 +582,7 @@ class MiroWindow(QMainWindow):
             self.gl_widget.load_maze(maze_file)
 
             # 게임 정보 업데이트
-            self.lbl_game_info.setText(f"Current Mode: {mode} | WASD: Move | Mouse: Look | ESC: Quit")
+            self.lbl_game_info.setText(f"Current Mode: {mode} | WASD: Move | Mouse: Look | Shift: use GAHO | ESC: Quit")
             
             # 커스텀 모드인 경우 추가 정보 표시
             if mode == "Custom":
@@ -586,10 +645,36 @@ class MiroWindow(QMainWindow):
         mins, secs = divmod(self.current_time, 60)
         self.lbl_timer.setText(f"{mins:02d}:{secs:02d}")
 
+    def _reset_skill_state(self):
+        """게임 종료/타이틀 복귀 시 스킬/사운드 상태 초기화"""
+        # 1. 사운드 초기화
+        if self.sound_manager:
+            self.sound_manager.stop_sfx_pool() # 효과음 즉시 중지
+            self.sound_manager.set_ducking(1.0) # 볼륨 복구
+
+        # 2. 스킬 상태 변수 초기화
+        self.active_skill_count = 0
+        self.is_cheat_paused = False
+
+        # 3. GLCheats 초기화 (타이머 콜백이 뒤늦게 실행되도 영향 없도록)
+        if hasattr(self, 'gl_widget'):
+            self.gl_widget.cheat_minimap = False
+            self.gl_widget.cheat_noclip = False
+            self.gl_widget.cheat_xray = False
+            # 이글아이는 메서드로
+            self.gl_widget.set_eagle_eye_mode(False)
+            
+        # 4. UI 메시지 초기화
+        if hasattr(self, 'lbl_gaho_message'):
+            self.lbl_gaho_message.setText("")
+
     def _on_game_over(self):
         """게임 오버 (시간 초과) 처리"""
         self.game_timer.stop()
         self.gl_widget.stop_game()
+        
+        # 스킬 상태 초기화
+        self._reset_skill_state()
         
         if self.sound_manager:
             self.sound_manager.stop_stage_bgm() # BGM 중지
@@ -597,15 +682,18 @@ class MiroWindow(QMainWindow):
             
         QMessageBox.critical(self, "Game Over", "Time's up! You failed to escape.")
         self._return_to_title()
-
+ 
     def _on_game_won(self):
         """게임 클리어 처리"""
         self.game_timer.stop()
 
+        # 스킬 상태 초기화
+        self._reset_skill_state()
+
         if self.sound_manager:
             self.sound_manager.stop_stage_bgm() # BGM 중지
             self.sound_manager.play_sfx("clear")
-
+ 
         QMessageBox.information(self, "Congratulations!", f"You escaped!\nTime: {self.lbl_timer.text()}")
         self._return_to_title()
 
@@ -614,14 +702,18 @@ class MiroWindow(QMainWindow):
         self.game_timer.stop()
 
     def _on_game_resumed(self):
-        """게임 재개 시 UI 타이머도 재시작"""
-        self.game_timer.start(1000)
+        """게임 재개 시 UI 타이머도 재시작 (단, 치트 퍼즈 중이면 시작 안 함)"""
+        if not self.is_cheat_paused:
+            self.game_timer.start(1000)
 
     def _return_to_title(self):
         """타이틀 화면으로 복귀"""
         # 게임 중이라면 중지
         if self.gl_widget.game_active:
             self.gl_widget.stop_game()
+            
+        # 스킬/사운드 상태 초기화
+        self._reset_skill_state()
             
         # 게임 타이머 중지
         self.game_timer.stop()
@@ -637,8 +729,10 @@ class MiroWindow(QMainWindow):
     # --- Cheats Logic ---
     def _cheat_time_boost(self):
         """치트: 시간 추가/감소 (스토리: +10s / 커스텀: -10s)"""
-        if not self.game_timer.isActive():
+        # 게임이 활성화 상태라면 타이머가 퍼즈 상태여도 동작하도록 수정
+        if not self.gl_widget.game_active:
             return
+            
         if self.is_custom_mode:
             # 커스텀 모드: 시간 감소
             self.current_time = max(0, self.current_time - 10)
@@ -652,12 +746,18 @@ class MiroWindow(QMainWindow):
         if not self.game_timer.isActive():
             return
         self.game_timer.stop()
+        self.is_cheat_paused = True
         # seconds초 후 자동 재개
         QTimer.singleShot(seconds * 1000, self._resume_timer_after_pause)
 
     def _resume_timer_after_pause(self):
         """퍼즈 종료 후 타이머 재개"""
-        if self.stack.currentIndex() == 1 and hasattr(self, 'gl_widget') and self.gl_widget.game_active:
+        self.is_cheat_paused = False
+        # 게임이 일시정지(ESC메뉴) 상태가 아니어야 타이머 재개
+        if self.stack.currentIndex() == 1 and \
+           hasattr(self, 'gl_widget') and \
+           self.gl_widget.game_active and \
+           not self.gl_widget.game_paused:
             self.game_timer.start(1000)
 
     def _on_cheat_state_changed(self, cheat_name, enabled):
@@ -707,6 +807,36 @@ class MiroWindow(QMainWindow):
         action_spawn.setChecked(self.items_spawn_enabled)
         action_spawn.triggered.connect(self._on_spawn_items_toggled)
         self.menu_items.addAction(action_spawn)
+
+        # 1.5. 스폰 개수 조절 (QSpinBox)
+        from PyQt5.QtWidgets import QWidgetAction, QHBoxLayout, QLabel, QSpinBox, QWidget
+        
+        # 메뉴에 위젯을 넣기 위한 컨테이너 액션
+        count_action = QWidgetAction(self.menu_items)
+        count_widget = QWidget()
+        layout = QHBoxLayout(count_widget)
+        layout.setContentsMargins(20, 2, 20, 2) # 여백 조정
+        
+        lbl_count = QLabel("Count:")
+        spin_count = QSpinBox()
+        spin_count.setRange(1, 10)
+        spin_count.setValue(self.spawn_count)
+        spin_count.setFixedWidth(60)
+        # 중요: 메뉴가 닫히지 않도록 하려면 focus 정책 등 고려 필요하나, 값 변경은 즉시 반영
+        
+        # 값 변경 시 self.spawn_count 업데이트
+        spin_count.valueChanged.connect(self._on_spawn_count_changed)
+        
+        # 마스터 스위치와 연동하여 활성/비활성
+        spin_count.setEnabled(self.items_spawn_enabled)
+        lbl_count.setEnabled(self.items_spawn_enabled)
+        self.spin_spawn_count = spin_count # 참조 저장 (활성화 제어용)
+        self.lbl_spawn_count = lbl_count   # 참조 저장
+
+        layout.addWidget(lbl_count)
+        layout.addWidget(spin_count)
+        count_action.setDefaultWidget(count_widget)
+        self.menu_items.addAction(count_action)
         
         self.menu_items.addSeparator()
         
@@ -750,7 +880,155 @@ class MiroWindow(QMainWindow):
     def _on_spawn_items_toggled(self, checked):
         """아이템 스폰 마스터 스위치 토글"""
         self.items_spawn_enabled = checked
+        if hasattr(self, 'spin_spawn_count'):
+            self.spin_spawn_count.setEnabled(checked)
+        if hasattr(self, 'lbl_spawn_count'):
+            self.lbl_spawn_count.setEnabled(checked)
         self._refresh_items_menu()
+        
+    def _on_spawn_count_changed(self, value):
+        """아이템 스폰 개수 변경"""
+        self.spawn_count = value
+        # 즉시 반영은 어렵지만(게임 리셋 필요), 변수에는 저장됨
+
+    def _activate_skill_bgm(self):
+        """스킬 발동 시 BGM 줄이기"""
+        if self.active_skill_count == 0 and self.sound_manager:
+            self.sound_manager.set_ducking(0.7)
+        self.active_skill_count += 1
+        
+    def _deactivate_skill_bgm(self):
+        """스킬 종료 시 BGM 복구"""
+        self.active_skill_count = max(0, self.active_skill_count - 1)
+        if self.active_skill_count == 0 and self.sound_manager:
+            self.sound_manager.set_ducking(1.0)
+
+    # --- Seonbae's GAHO Logic ---
+    def _on_item_collected(self):
+        """아이템 획득 시 처리"""
+        # UI 업데이트
+        score = self.gl_widget.gaho_score
+        self.lbl_gaho.setText(f"Seonbae's GAHO: {score}")
+        
+        # 사운드 재생
+        if self.sound_manager:
+            self.sound_manager.play_sfx("item_get")
+
+    def _on_skill_activated(self):
+        """GAHO 스킬 발동 시 처리"""
+        # UI 업데이트
+        score = self.gl_widget.gaho_score
+        self.lbl_gaho.setText(f"Seonbae's GAHO: {score}")
+        
+        # 사운드 재생
+        if self.sound_manager:
+            self.sound_manager.play_sfx("skill_activate")
+            
+        # 랜덤 효과 발동
+        import random
+        effect = random.choice(["time_pause", "time_boost", "minimap", "ghost", "xray", "eagle"])
+        self._activate_specific_skill(effect)
+
+    def _activate_specific_skill(self, effect):
+        """특정 스킬 효과 강제 발동 (시뮬레이션용)"""
+        sid = self.game_session_id
+        
+        if effect == "time_pause":
+            # 10초 정지
+            self._on_cheat_pause_timer(10)
+            self._play_skill_sound("time_pause_start")
+            self._activate_skill_bgm()
+            QTimer.singleShot(10000, lambda: self._end_time_pause_skill(sid))
+            
+            self._show_temp_message("Time Paused (10s)!")
+            
+        elif effect == "time_boost":
+            # 시간 추가/경감
+            self._cheat_time_boost()
+            self._play_skill_sound("time_boost")
+            msg = "-10s Record!" if self.is_custom_mode else "+10s Bonus!"
+            self._show_temp_message(msg)
+            
+        elif effect == "minimap":
+            # 10초 미니맵
+            self.gl_widget.cheat_minimap = True
+            self._play_skill_sound("minimap_start")
+            self._activate_skill_bgm()
+            QTimer.singleShot(10000, lambda: self._disable_minimap_safe(sid))
+            self._show_temp_message("Minimap Revealed (10s)!")
+            
+        elif effect == "ghost":
+            # 3초 고스트
+            self.gl_widget.cheat_noclip = True
+            self._play_skill_sound("ghost_start")
+            self._activate_skill_bgm()
+            QTimer.singleShot(3000, lambda: self._disable_ghost_safe(sid))
+            self._show_temp_message("Ghost Mode (3s)!")
+            
+        elif effect == "xray":
+            # 5초 엑스레이
+            self.gl_widget.cheat_xray = True
+            self.gl_widget.cheatStateChanged.emit('xray', True) # UI 동기화
+            self._play_skill_sound("xray_start")
+            self._activate_skill_bgm()
+            QTimer.singleShot(5000, lambda: self._disable_xray_safe(sid))
+            self._show_temp_message("X-Ray Vision (5s)!")
+
+        elif effect == "eagle":
+            # 10초 이글아이
+            self.gl_widget.set_eagle_eye_mode(True)
+            self._play_skill_sound("eagle_start")
+            self._activate_skill_bgm()
+            QTimer.singleShot(10000, lambda: self._disable_eagle_safe(sid))
+            self._show_temp_message("Eagle Eye (10s)!")
+
+    def _play_skill_sound(self, name):
+        """스킬 사운드 재생 (게임 중일 때만)"""
+        # 게임이 종료된 상태에서 타이머 콜백으로 종료음이 재생되는 것 방지
+        if not self.gl_widget.game_active:
+            return
+            
+        if self.sound_manager:
+            self.sound_manager.play_sfx(name)
+            
+    def _end_time_pause_skill(self, sid):
+        if sid != self.game_session_id: return
+        self._play_skill_sound("time_pause_end")
+        self._deactivate_skill_bgm()
+
+    def _disable_minimap_safe(self, sid):
+        if sid != self.game_session_id: return
+        self.gl_widget.cheat_minimap = False
+        self._play_skill_sound("minimap_end")
+        self._deactivate_skill_bgm()
+        
+    def _disable_eagle_safe(self, sid):
+        if sid != self.game_session_id: return
+        self.gl_widget.set_eagle_eye_mode(False)
+        self._play_skill_sound("eagle_end")
+        self._deactivate_skill_bgm()
+
+    def _disable_ghost_safe(self, sid):
+        if sid != self.game_session_id: return
+        self.gl_widget.cheat_noclip = False
+        self.gl_widget._teleport_to_safe_position()
+        self._play_skill_sound("ghost_end")
+        self._deactivate_skill_bgm()
+        
+    def _disable_xray_safe(self, sid):
+        if sid != self.game_session_id: return
+        self.gl_widget.cheat_xray = False
+        self.gl_widget.cheatStateChanged.emit('xray', False)
+        self._play_skill_sound("xray_end")
+        self._deactivate_skill_bgm()
+
+    def _show_temp_message(self, msg):
+        """GAHO 메시지 전용 라벨에 표시"""
+        self.lbl_gaho_message.setText(msg)
+        QTimer.singleShot(3000, lambda: self.lbl_gaho_message.setText(""))
+
+    def _restore_info_text(self, text):
+        pass # 더 이상 사용하지 않음 (메시지 라벨 분리됨)
 
     def _on_item_checked(self, index, checked):
         """개별 아이템 토글"""
