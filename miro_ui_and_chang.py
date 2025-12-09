@@ -76,11 +76,53 @@ class MiroWindow(QMainWindow):
         
 
         
-        # 2. 미니맵 (토글 액션)
-        self.action_minimap = QAction("Show Minimap", self)
-        self.action_minimap.setCheckable(True)
-        self.action_minimap.setChecked(False) # 기본값
-        toolbar.addAction(self.action_minimap)
+        # 2. 치트 메뉴 (드롭다운)
+        from PyQt5.QtWidgets import QToolButton, QMenu
+
+        self.btn_cheats = QToolButton()
+        self.btn_cheats.setText("Cheats ▾")
+        self.btn_cheats.setPopupMode(QToolButton.InstantPopup)
+        self.btn_cheats.setToolButtonStyle(Qt.ToolButtonTextOnly)
+
+        self.menu_cheats = QMenu(self.btn_cheats)
+        
+        # 2.1 시간 조작 (Trigger) - 네이밍: "Time Boost" (스토리: +10s / 커스텀: -10s)
+        self.action_cheat_time = QAction("Time Boost (+10s / -10s)", self)
+        self.action_cheat_time.triggered.connect(self._cheat_time_boost)
+        self.menu_cheats.addAction(self.action_cheat_time)
+        
+        self.menu_cheats.addSeparator()
+
+        # 2.2 미니맵 (Toggle)
+        self.action_cheat_minimap = QAction("Show Minimap", self)
+        self.action_cheat_minimap.setCheckable(True)
+        self.action_cheat_minimap.setChecked(False)
+        self.action_cheat_minimap.toggled.connect(self._cheat_toggle_minimap)
+        self.menu_cheats.addAction(self.action_cheat_minimap)
+
+        # 2.3 고스트 모드 (Toggle) - 벽 뚫기
+        self.action_cheat_ghost = QAction("Ghost Mode (No Clip)", self)
+        self.action_cheat_ghost.setCheckable(True)
+        self.action_cheat_ghost.setChecked(False)
+        self.action_cheat_ghost.toggled.connect(self._cheat_toggle_ghost)
+        self.menu_cheats.addAction(self.action_cheat_ghost)
+
+        # 2.4 투시 (Toggle) - 벽 투명화
+        self.action_cheat_xray = QAction("X-Ray Vision", self)
+        self.action_cheat_xray.setCheckable(True)
+        self.action_cheat_xray.setChecked(False)
+        self.action_cheat_xray.toggled.connect(self._cheat_toggle_xray)
+        self.menu_cheats.addAction(self.action_cheat_xray)
+        
+        # 2.5 이글 아이 (Toggle) - 시야 상승
+        self.action_cheat_eagle = QAction("Eagle Eye View", self)
+        self.action_cheat_eagle.setCheckable(True)
+        self.action_cheat_eagle.setChecked(False)
+        self.action_cheat_eagle.toggled.connect(self._cheat_toggle_eagle)
+        self.menu_cheats.addAction(self.action_cheat_eagle)
+
+        self.btn_cheats.setMenu(self.menu_cheats)
+        toolbar.addWidget(self.btn_cheats)
 
     def _setup_title_page(self):
         """타이틀 화면 UI 구성"""
@@ -527,14 +569,41 @@ class MiroWindow(QMainWindow):
 
     def _return_to_title(self):
         """타이틀 화면으로 복귀"""
-        # 게임 중지 및 타이머 정지
-        self.game_timer.stop()
-        if hasattr(self, 'gl_widget') and self.gl_widget.game_active:
+        # 게임 중이라면 중지
+        if self.gl_widget.game_active:
             self.gl_widget.stop_game()
             
-        # 타이틀 BGM으로 복귀
+        # 게임 타이머 중지
+        self.game_timer.stop()
+        
+        # 타이틀 BGM으로 복귀 (재생 중지 후 처음부터 재생)
         if self.sound_manager:
-            self.sound_manager.play_title_bgm()
+            self.sound_manager.play_title_bgm() 
             
         self.stack.setCurrentIndex(0)
 
+    # --- Cheats Logic Placeholders ---
+    def _cheat_time_boost(self):
+        """치트: 시간 추가/감소"""
+        print("Cheat Triggered: Time Boost")
+        # TODO: Implement time manipulation logic
+        
+    def _cheat_toggle_minimap(self, enabled):
+        """치트: 미니맵 토글"""
+        print(f"Cheat Toggled: Minimap = {enabled}")
+        # TODO: Implement minimap display
+        
+    def _cheat_toggle_ghost(self, enabled):
+        """치트: 고스트 모드 토글"""
+        print(f"Cheat Toggled: Ghost Mode = {enabled}")
+        # TODO: Implement no-clip logic
+        
+    def _cheat_toggle_xray(self, enabled):
+        """치트: 투시 모드 토글"""
+        print(f"Cheat Toggled: X-Ray = {enabled}")
+        # TODO: Implement wall transparency
+        
+    def _cheat_toggle_eagle(self, enabled):
+        """치트: 이글 아이 모드 토글"""
+        print(f"Cheat Toggled: Eagle Eye = {enabled}")
+        # TODO: Implement camera lift logic
