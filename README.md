@@ -100,3 +100,35 @@ PyOpenGL-ModelingSW/
 - **PyOpenGL** - OpenGL 바인딩
 - **PyQt5** - GUI 프레임워크
 - **NumPy** - 수치 연산
+
+## EXE 빌드 (Build)
+
+PyInstaller를 사용하여 실행 파일로 빌드할 수 있습니다:
+
+```bash
+# PyInstaller 설치
+pip install pyinstaller
+
+# 빌드 실행
+pyinstaller main.spec
+```
+
+빌드 결과물은 `dist/ModelingApp/` 폴더에 생성됩니다.
+
+## 배포 (Distribution)
+
+```
+dist/ModelingApp/
+├── ModelingApp.exe      # 실행 파일
+├── _internal/           # Python 런타임 (자동 생성)
+├── assets/              # 리소스 (아이콘, 사운드, 텍스처)
+└── datasets/            # 데이터 파일 (미로, 아이템)
+```
+
+배포 시 `dist/ModelingApp/` 폴더 전체를 ZIP으로 압축하여 배포합니다.
+
+### 실행 요구사항 (End Users)
+
+- Windows 10/11 (64-bit)
+- OpenGL 지원 그래픽 드라이버
+- Python 설치 불필요
