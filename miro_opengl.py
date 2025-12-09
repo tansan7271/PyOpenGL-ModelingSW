@@ -55,7 +55,10 @@ class MiroOpenGLWidget(QOpenGLWidget):
     game_won = pyqtSignal()
     gamePaused = pyqtSignal()
     gameResumed = pyqtSignal()
-
+    # 시그널 정의
+    gameFinished = pyqtSignal(bool, float) # 성공여부, 걸린시간
+    gameStarted = pyqtSignal() # 게임 시작 시그널
+    
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -1018,6 +1021,8 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         # 게임 루프 시작
         self.game_timer.start(GAME_TICK_MS)
+        self.gameStarted.emit() # UI 등 외부에 알림
+        print("게임 시작!")
 
         # 포커스 설정
         self.setFocus()

@@ -20,6 +20,13 @@ class MiroWindow(QMainWindow):
     def __init__(self, sound_manager=None):
         super().__init__()
         self.sound_manager = sound_manager
+        
+        # 아이템 리스트 초기화
+        # 구조: {'name': str, 'path': str, 'is_sample': bool, 'checked': bool}
+        self.items_list = []
+        self.items_spawn_enabled = True # 마스터 스위치
+        self._init_sample_items()
+
         self.game_timer = QTimer()
         self.game_timer.timeout.connect(self._update_timer)
         self.time_limit = 0
@@ -59,11 +66,32 @@ class MiroWindow(QMainWindow):
         
         # 초기 화면 설정
         self.stack.setCurrentIndex(0)
+        
+        # 아이템 리스트 초기화 (재설정)
+        self.items_list = []
+        self._init_sample_items()
+
+    def _init_sample_items(self):
+        """샘플 아이템 리스트 초기화"""
+        import glob
+        
+        base_path = os.path.join(os.path.dirname(__file__), 'datasets')
+        # item_*.dat 파일 찾기
+        sample_files = sorted(glob.glob(os.path.join(base_path, "item_*.dat")))
+        
+        for f in sample_files:
+            name = os.path.basename(f)
+            self.items_list.append({
+                'name': name,
+                'path': f,
+                'is_sample': True,
+                'checked': True # 기본값 활성화
+            })
 
 
     def _create_toolbar(self):
         """툴바 설정 (뷰 모드 드롭다운, 미니맵 토글)"""
-        from PyQt5.QtWidgets import QToolBar, QAction
+        from PyQt5.QtWidgets import QToolBar, QAction, QToolButton, QMenu
         
         toolbar = QToolBar("Maze Toolbar")
         # toolbar.setMovable(True) # 기본값이 True
@@ -123,6 +151,19 @@ class MiroWindow(QMainWindow):
 
         self.btn_cheats.setMenu(self.menu_cheats)
         toolbar.addWidget(self.btn_cheats)
+
+        # 3. 아이템 메뉴 (드롭다운)
+        self.btn_items = QToolButton()
+        self.btn_items.setText("Items ▾")
+        self.btn_items.setPopupMode(QToolButton.InstantPopup)
+        self.btn_items.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        
+        self.menu_items = QMenu(self.btn_items)
+        self.btn_items.setMenu(self.menu_items)
+        toolbar.addWidget(self.btn_items)
+        
+        # 메뉴 초기 구성
+        self._refresh_items_menu()
 
     def _setup_title_page(self):
         """타이틀 화면 UI 구성"""
@@ -383,6 +424,7 @@ class MiroWindow(QMainWindow):
         # OpenGL 위젯
         self.gl_widget = MiroOpenGLWidget()
         self.gl_widget.game_won.connect(self._on_game_won)
+        self.gl_widget.gameStarted.connect(lambda: self._update_ui_state(True)) # 게임 시작 시 UI 갱신 연결
         self.gl_widget.gamePaused.connect(self._on_game_paused)
         self.gl_widget.gameResumed.connect(self._on_game_resumed)
         layout.addWidget(self.gl_widget, 1) # Stretch Factor 1 추가
@@ -581,6 +623,8 @@ class MiroWindow(QMainWindow):
             self.sound_manager.play_title_bgm() 
             
         self.stack.setCurrentIndex(0)
+        self.stack.setCurrentIndex(0)
+        self._update_ui_state(False) # 아이템 메뉴 활성화
 
     # --- Cheats Logic Placeholders ---
     def _cheat_time_boost(self):
@@ -607,3 +651,100 @@ class MiroWindow(QMainWindow):
         """치트: 이글 아이 모드 토글"""
         print(f"Cheat Toggled: Eagle Eye = {enabled}")
         # TODO: Implement camera lift logic
+
+    # --- Items UI Logic ---
+    def _refresh_items_menu(self):
+        """아이템 메뉴 동적 재구성"""
+        from PyQt5.QtWidgets import QAction
+        self.menu_items.clear()
+        
+        # 1. 마스터 스위치 (Spawn Items)
+        action_spawn = QAction("Spawn Items", self)
+        action_spawn.setCheckable(True)
+        action_spawn.setChecked(self.items_spawn_enabled)
+        action_spawn.triggered.connect(self._on_spawn_items_toggled)
+        self.menu_items.addAction(action_spawn)
+        
+        self.menu_items.addSeparator()
+        
+        # 2. 아이템 리스트
+        # 샘플 아이템과 커스텀 아이템 구분
+        has_added_separator = False
+        
+        for idx, item in enumerate(self.items_list):
+            # 커스텀 아이템 시작 시 구분선 추가 (한 번만)
+            if not item['is_sample'] and not has_added_separator:
+                self.menu_items.addSeparator()
+                has_added_separator = True
+            
+            # 체크박스 액션
+            action = QAction(item['name'], self)
+            action.setCheckable(True)
+            action.setChecked(item['checked'])
+            # 마스터 스위치 여부에 따라 활성/비활성 제어
+            action.setEnabled(self.items_spawn_enabled)
+            
+            # 클로저 문제 해결을 위해 기본값 인자 사용
+            action.toggled.connect(lambda checked, i=idx: self._on_item_checked(i, checked))
+            self.menu_items.addAction(action)
+            
+            # 커스텀 아이템인 경우 삭제 버튼 추가
+            if not item['is_sample']:
+                del_action = QAction(f"    ❌ Delete '{item['name']}'", self)
+                del_action.setEnabled(self.items_spawn_enabled)
+                del_action.triggered.connect(lambda _, i=idx: self._on_remove_item(i))
+                self.menu_items.addAction(del_action)
+
+        self.menu_items.addSeparator()
+
+        # 3. 파일 추가
+        action_add = QAction("➕ Add File...", self)
+        # Spawn이 꺼진 상태에서 추가하는게 의미가 없으므로 비활성화가 자연스러움.
+        action_add.setEnabled(self.items_spawn_enabled)
+        action_add.triggered.connect(self._on_add_item)
+        self.menu_items.addAction(action_add)
+
+    def _on_spawn_items_toggled(self, checked):
+        """아이템 스폰 마스터 스위치 토글"""
+        self.items_spawn_enabled = checked
+        self._refresh_items_menu()
+
+    def _on_item_checked(self, index, checked):
+        """개별 아이템 토글"""
+        if 0 <= index < len(self.items_list):
+            self.items_list[index]['checked'] = checked
+        # UI 업데이트 불필요 (QAction이 스스로 상태 변경)
+
+    def _on_add_item(self):
+        """아이템 파일 추가"""
+        from PyQt5.QtWidgets import QFileDialog
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(self, "Load Item File", "", "Data Files (*.dat);;All Files (*)", options=options)
+        
+        if file_path:
+            name = os.path.basename(file_path)
+            # 중복 체크
+            if any(item['path'] == file_path for item in self.items_list):
+                 return
+
+            self.items_list.append({
+                'name': name,
+                'path': file_path,
+                'is_sample': False,
+                'checked': True
+            })
+            self._refresh_items_menu()
+
+    def _on_remove_item(self, index):
+        """아이템 파일 제거 (리스트에서만)"""
+        if 0 <= index < len(self.items_list):
+            del self.items_list[index]
+            self._refresh_items_menu()
+            
+    def _update_ui_state(self, game_active):
+        """게임 상태에 따라 UI 활성/비활성 제어"""
+        # 게임 중이면 아이템 메뉴 비활성화
+        ui_enabled = not game_active
+        
+        if hasattr(self, 'btn_items'):
+            self.btn_items.setEnabled(ui_enabled)
