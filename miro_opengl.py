@@ -1367,6 +1367,77 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
         return False
 
+    def _check_collision_ignore_noclip(self, x, z):
+        """충돌 감지 (노클립 상태 무시, 순수 충돌만 체크)"""
+        if not self.maze_grid:
+            return False
+
+        for offset_x in [-PLAYER_RADIUS, 0, PLAYER_RADIUS]:
+            for offset_z in [-PLAYER_RADIUS, 0, PLAYER_RADIUS]:
+                check_x = x + offset_x
+                check_z = z + offset_z
+
+                gx = int((check_x - self.grid_min_x) / self.grid_scale)
+                gz = int((check_z - self.grid_min_z) / self.grid_scale)
+
+                if not (0 <= gz < len(self.maze_grid) and 0 <= gx < len(self.maze_grid[0])):
+                    return True
+                if self.maze_grid[gz][gx] == 1:
+                    return True
+
+        return False
+
+    def _find_nearest_safe_tile(self, x, z):
+        """현재 위치에서 가장 가까운 빈 타일(통로)의 정중앙 좌표 반환 (유클리드 거리 기반)
+
+        Returns:
+            (world_x, world_z) 또는 None (안전한 타일이 없는 경우)
+        """
+        if not self.maze_grid:
+            return None
+
+        height = len(self.maze_grid)
+        width = len(self.maze_grid[0]) if height > 0 else 0
+
+        best_pos = None
+        best_dist_sq = float('inf')
+
+        # 모든 빈 타일 탐색
+        for gz in range(height):
+            for gx in range(width):
+                if self.maze_grid[gz][gx] == 0:  # 통로
+                    # 타일 정중앙 월드 좌표
+                    world_x = self.grid_min_x + (gx + 0.5) * self.grid_scale
+                    world_z = self.grid_min_z + (gz + 0.5) * self.grid_scale
+
+                    # 유클리드 거리 제곱 계산
+                    dx = world_x - x
+                    dz = world_z - z
+                    dist_sq = dx * dx + dz * dz
+
+                    if dist_sq < best_dist_sq:
+                        best_dist_sq = dist_sq
+                        best_pos = (world_x, world_z)
+
+        return best_pos
+
+    def _teleport_to_safe_position(self):
+        """플레이어가 벽 안에 있으면 가장 가까운 안전한 타일로 이동"""
+        x, z = self.player_pos[0], self.player_pos[2]
+
+        # 벽 충돌 확인 (노클립 상태 무시)
+        is_stuck = self._check_collision_ignore_noclip(x, z)
+
+        if is_stuck:
+            safe_pos = self._find_nearest_safe_tile(x, z)
+            if safe_pos:
+                self.player_pos[0] = safe_pos[0]
+                self.player_pos[2] = safe_pos[1]
+                # 바닥 높이 업데이트
+                floor_height = self._get_floor_height_at(safe_pos[0], safe_pos[1])
+                self.player_pos[1] = floor_height + PLAYER_HEIGHT
+                self._update_ground_state()
+
     def _check_goal(self):
         """목표 도달 체크 (거리 제곱 비교로 sqrt 제거)"""
         dx = self.player_pos[0] - self.goal_pos[0]
@@ -1638,6 +1709,9 @@ class MiroOpenGLWidget(QOpenGLWidget):
             event.accept()
         elif key == Qt.Key_3:
             self.cheat_noclip = not self.cheat_noclip
+            # 노클립 해제 시 안전 위치로 이동
+            if not self.cheat_noclip:
+                self._teleport_to_safe_position()
             self.cheatStateChanged.emit('noclip', self.cheat_noclip)
             event.accept()
         elif key == Qt.Key_4:

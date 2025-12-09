@@ -680,6 +680,9 @@ class MiroWindow(QMainWindow):
         """치트: 고스트 모드 토글 (UI 메뉴에서 호출)"""
         if hasattr(self, 'gl_widget'):
             self.gl_widget.cheat_noclip = enabled
+            # 노클립 해제 시 안전 위치로 이동
+            if not enabled:
+                self.gl_widget._teleport_to_safe_position()
 
     def _cheat_toggle_xray(self, enabled):
         """치트: 투시 모드 토글 (UI 메뉴에서 호출)"""
