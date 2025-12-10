@@ -186,6 +186,8 @@ class SoundManager(QObject):
             filename = "sfx_skill_activate.wav"
         elif sfx_type == "time_boost":
             filename = "sfx_time_boost.wav"
+        elif sfx_type == "trap_fall":
+            filename = "sfx_trap_fall.wav"
         elif sfx_type.endswith("_start") or sfx_type.endswith("_end"):
             # 일반화된 처리: sfx_ghost_start.wav 등
             filename = f"sfx_{sfx_type}.wav"

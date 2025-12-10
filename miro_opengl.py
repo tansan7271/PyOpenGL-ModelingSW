@@ -73,6 +73,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
     # GAHO 시스템
     itemCollected = pyqtSignal()    # 아이템 획득 시그널
     skillActivated = pyqtSignal()   # 스킬 발동 시그널
+    trapFall = pyqtSignal()         # 함정 추락 시그널 (New)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2057,6 +2058,9 @@ class MiroOpenGLWidget(QOpenGLWidget):
         self.player_pos = [self.start_pos[0], start_floor + PLAYER_HEIGHT, self.start_pos[1]]
         self.player_velocity_y = 0.0
         self.is_grounded = True
+        
+        # 함정 추락 시그널 발생
+        self.trapFall.emit()
 
     def _process_vertical_physics(self):
         """중력, 점프, 지면 충돌 처리"""

@@ -477,10 +477,10 @@ class MiroWindow(QMainWindow):
         # 치트 시그널 연결
         self.gl_widget.cheatPauseTimer.connect(self._on_cheat_pause_timer)
         self.gl_widget.cheatStateChanged.connect(self._on_cheat_state_changed)
-        
-        # GAHO 시스템 연결
+        self.gl_widget.gameFinished.connect(self._on_game_won)
         self.gl_widget.itemCollected.connect(self._on_item_collected)
         self.gl_widget.skillActivated.connect(self._on_skill_activated)
+        self.gl_widget.trapFall.connect(self._on_trap_fall) # 함정 추락 연결
         
         layout.addWidget(self.gl_widget, 1) # Stretch Factor 1 추가
 
@@ -580,11 +580,11 @@ class MiroWindow(QMainWindow):
             self.gl_widget.load_maze(maze_file)
 
             # 게임 정보 업데이트
-            self.lbl_game_info.setText(f"Current Mode: {mode} | WASD: Move | Mouse: Look | Left Shift: use GAHO | ESC: Quit")
+            self.lbl_game_info.setText(f"Current Mode: {mode} | WASD: Move | Mouse: Look | Left Shift: use GAHO | ESC: Pause")
             
             # 커스텀 모드인 경우 추가 정보 표시
             if mode == "Custom":
-                 self.lbl_game_info.setText(f"Mode: Custom ({self.spin_width.value()}x{self.spin_height.value()}) | WASD: Move | Mouse: Look")
+                 self.lbl_game_info.setText(f"Mode: Custom ({self.spin_width.value()}x{self.spin_height.value()}) | WASD: Move | Mouse: Look | Left Shift: use GAHO | ESC: Pause")
 
             # 화면 전환
             self.stack.setCurrentIndex(1)
@@ -911,6 +911,15 @@ class MiroWindow(QMainWindow):
         # 사운드 재생
         if self.sound_manager:
             self.sound_manager.play_sfx("item_get")
+
+    def _on_trap_fall(self):
+        """함정 추락 시 처리"""
+        # 사운드 재생
+        if self.sound_manager:
+            self.sound_manager.play_sfx("trap_fall")
+        
+        # 메시지 표시 (옵션)
+        # self._show_temp_message("Oops! Reset to Start.")
 
     def _on_skill_activated(self):
         """GAHO 스킬 발동 시 처리"""
