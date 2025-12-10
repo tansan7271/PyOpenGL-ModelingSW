@@ -184,7 +184,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
     def set_theme(self, theme_name):
         """
         테마를 변경하고 관련 텍스처를 다시 로드합니다.
-        
+
         Args:
             theme_name (str): 적용할 테마 이름 (예: "810-Gwan")
         """
@@ -194,21 +194,8 @@ class MiroOpenGLWidget(QOpenGLWidget):
             if self.isValid():
                 self.makeCurrent()
                 self._load_textures()
-                # 지오메트리도 텍스처 인덱스 재할당 위해 다시 생성 필요
-                # 현재 구조에서는 텍스처 로드만 하고, 이후 렌더링 시 반영됨
-                pass 
                 self.doneCurrent()
-
-        # VBO 메타데이터
-        self.vbo_initialized = False
-        self.wall_count = 0
-        self.floor_count = 0
-
-        # 캐싱된 Quadric (목표 지점 렌더링용)
-        self.goal_quadric = None
-
-        self.doneCurrent()
-        self.update()
+            self.update()
 
     def set_eagle_eye_mode(self, enabled):
         """이글아이 모드 설정 (안개 자동 제어 포함)"""
