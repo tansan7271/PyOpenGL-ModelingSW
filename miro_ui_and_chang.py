@@ -126,38 +126,38 @@ class MiroWindow(QMainWindow):
         self.action_cheat_pause.triggered.connect(lambda: self._on_cheat_pause_timer(10))
         self.menu_cheats.addAction(self.action_cheat_pause)
 
-        # 2.2 미니맵 (Toggle)
-        self.action_cheat_minimap = QAction("Show Minimap [2]", self)
+        # 2.2 시간 조작 (Trigger) - 네이밍: "Time Boost" (스토리: +10s / 커스텀: -10s)
+        self.action_cheat_time = QAction("Time Boost (+10s / -10s) [2]", self)
+        self.action_cheat_time.triggered.connect(self._cheat_time_boost)
+        self.menu_cheats.addAction(self.action_cheat_time)
+
+        # 2.3 미니맵 (Toggle)
+        self.action_cheat_minimap = QAction("Show Minimap [3]", self)
         self.action_cheat_minimap.setCheckable(True)
         self.action_cheat_minimap.setChecked(False)
         self.action_cheat_minimap.toggled.connect(self._cheat_toggle_minimap)
         self.menu_cheats.addAction(self.action_cheat_minimap)
 
-        # 2.3 고스트 모드 (Toggle) - 벽 뚫기
-        self.action_cheat_ghost = QAction("Ghost Mode (No Clip) [3]", self)
+        # 2.4 고스트 모드 (Toggle) - 벽 뚫기
+        self.action_cheat_ghost = QAction("Ghost Mode (No Clip) [4]", self)
         self.action_cheat_ghost.setCheckable(True)
         self.action_cheat_ghost.setChecked(False)
         self.action_cheat_ghost.toggled.connect(self._cheat_toggle_ghost)
         self.menu_cheats.addAction(self.action_cheat_ghost)
 
-        # 2.4 투시 (Toggle) - 벽 투명화
-        self.action_cheat_xray = QAction("X-Ray Vision [4]", self)
+        # 2.5 투시 (Toggle) - 벽 투명화
+        self.action_cheat_xray = QAction("X-Ray Vision [5]", self)
         self.action_cheat_xray.setCheckable(True)
         self.action_cheat_xray.setChecked(False)
         self.action_cheat_xray.toggled.connect(self._cheat_toggle_xray)
         self.menu_cheats.addAction(self.action_cheat_xray)
 
-        # 2.5 이글 아이 (Toggle) - 시야 상승
-        self.action_cheat_eagle = QAction("Eagle Eye View [5]", self)
+        # 2.6 이글 아이 (Toggle) - 시야 상승
+        self.action_cheat_eagle = QAction("Eagle Eye View [6]", self)
         self.action_cheat_eagle.setCheckable(True)
         self.action_cheat_eagle.setChecked(False)
         self.action_cheat_eagle.toggled.connect(self._cheat_toggle_eagle)
         self.menu_cheats.addAction(self.action_cheat_eagle)
-
-        # 2.6 시간 조작 (Trigger) - 네이밍: "Time Boost" (스토리: +10s / 커스텀: -10s)
-        self.action_cheat_time = QAction("Time Boost (+10s / -10s)", self)
-        self.action_cheat_time.triggered.connect(self._cheat_time_boost)
-        self.menu_cheats.addAction(self.action_cheat_time)
 
         self.menu_cheats.addSeparator()
         self.menu_cheats.addSection("Simulation (Trigger)")
@@ -474,6 +474,7 @@ class MiroWindow(QMainWindow):
         self.gl_widget.gameResumed.connect(self._on_game_resumed)
         # 치트 시그널 연결
         self.gl_widget.cheatPauseTimer.connect(self._on_cheat_pause_timer)
+        self.gl_widget.cheatTimeBoost.connect(self._cheat_time_boost)
         self.gl_widget.cheatStateChanged.connect(self._on_cheat_state_changed)
         self.gl_widget.gameFinished.connect(self._on_game_won)
         self.gl_widget.itemCollected.connect(self._on_item_collected)

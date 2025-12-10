@@ -68,6 +68,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
     
     # 치트 관련 시그널
     cheatPauseTimer = pyqtSignal(int)         # 타이머 일시정지 요청
+    cheatTimeBoost = pyqtSignal()             # Time Boost 요청
     cheatStateChanged = pyqtSignal(str, bool) # 치트 상태 변경 알림
     
     # GAHO 시스템
@@ -2135,29 +2136,29 @@ class MiroOpenGLWidget(QOpenGLWidget):
         elif key == Qt.Key_Escape:
             self.pause_game()
             event.accept()
-        # 치트 키 (숫자키 1-5)
+        # 치트 키 (숫자키 1-6)
         elif key == Qt.Key_1:
-            self.cheatPauseTimer.emit(10)  # 10초 퍼즈
+            self.cheatPauseTimer.emit(10)  # Pause Timer
             event.accept()
         elif key == Qt.Key_2:
+            self.cheatTimeBoost.emit()  # Time Boost
+            event.accept()
+        elif key == Qt.Key_3:
             self.cheat_minimap = not self.cheat_minimap
             self.cheatStateChanged.emit('minimap', self.cheat_minimap)
             event.accept()
-        elif key == Qt.Key_3:
+        elif key == Qt.Key_4:
             self.cheat_noclip = not self.cheat_noclip
             # 노클립 해제 시 안전 위치로 이동
             if not self.cheat_noclip:
                 self._teleport_to_safe_position()
             self.cheatStateChanged.emit('noclip', self.cheat_noclip)
             event.accept()
-        elif key == Qt.Key_4:
+        elif key == Qt.Key_5:
             self.cheat_xray = not self.cheat_xray
             self.cheatStateChanged.emit('xray', self.cheat_xray)
             event.accept()
-        elif key == Qt.Key_5:
-            # self.cheat_eagle_eye = not self.cheat_eagle_eye
-            # self.cheatStateChanged.emit('eagle', self.cheat_eagle_eye)
-            # 스마트 안개 로직 적용을 위해 메서드 호출
+        elif key == Qt.Key_6:
             self.set_eagle_eye_mode(not self.cheat_eagle_eye)
             event.accept()
         elif key == Qt.Key_Shift:
