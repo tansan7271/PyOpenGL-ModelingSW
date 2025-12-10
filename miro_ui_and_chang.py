@@ -154,8 +154,6 @@ class MiroWindow(QMainWindow):
         self.action_cheat_eagle.toggled.connect(self._cheat_toggle_eagle)
         self.menu_cheats.addAction(self.action_cheat_eagle)
 
-        self.menu_cheats.addSeparator()
-
         # 2.6 시간 조작 (Trigger) - 네이밍: "Time Boost" (스토리: +10s / 커스텀: -10s)
         self.action_cheat_time = QAction("Time Boost (+10s / -10s)", self)
         self.action_cheat_time.triggered.connect(self._cheat_time_boost)
