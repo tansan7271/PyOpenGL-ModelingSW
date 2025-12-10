@@ -82,7 +82,7 @@ class MiroWindow(QMainWindow):
 
     def _init_sample_items(self):
         """샘플 아이템 리스트 초기화"""
-        base_path = get_resource_path('datasets')
+        base_path = get_user_data_path('datasets')
         # item_*.dat 파일 찾기
         sample_files = sorted(glob.glob(os.path.join(base_path, "item_*.dat")))
         
@@ -521,21 +521,21 @@ class MiroWindow(QMainWindow):
             self.combo_theme.setCurrentText("810-Gwan")         # Theme: 810관
             self.gl_widget.set_fog(False)                       # Fog: OFF
             self.gl_widget.set_weather("Clear")                 # Weather: Clear
-            maze_file = get_resource_path(os.path.join('datasets', 'maze_01.dat'))
+            maze_file = os.path.join(get_user_data_path('datasets'), 'maze_01.dat')
             self._start_timer(mode, 60)
 
         elif mode == "Stage 2":
             self.combo_theme.setCurrentText("Inside Campus")    # Theme: 교정 내부
             self.gl_widget.set_fog(True)                        # Fog: ON (분위기 조성)
             self.gl_widget.set_weather("Rain")                  # Weather: Rain
-            maze_file = get_resource_path(os.path.join('datasets', 'maze_02.dat'))
+            maze_file = os.path.join(get_user_data_path('datasets'), 'maze_02.dat')
             self._start_timer(mode, 90)
 
         elif mode == "Stage 3":
             self.combo_theme.setCurrentText("Path to the Main Gate") # Theme: 정문
             self.gl_widget.set_fog(False)                            # Fog: OFF
             self.gl_widget.set_weather("Snow")                       # Weather: Snow
-            maze_file = get_resource_path(os.path.join('datasets', 'maze_03.dat'))
+            maze_file = os.path.join(get_user_data_path('datasets'), 'maze_03.dat')
             self._start_timer(mode, 120)
         elif mode == "Custom":
             # 커스텀 모드 설정값 적용

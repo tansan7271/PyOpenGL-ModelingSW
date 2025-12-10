@@ -37,6 +37,35 @@ def get_base_path():
         return os.path.dirname(os.path.abspath(__file__))
 
 
+def ensure_user_datasets():
+    """
+    번들된 datasets를 사용자 쓰기 가능 경로로 복사
+
+    빌드된 앱 실행 시 _internal/datasets의 파일들을
+    사용자 datasets 폴더로 복사하여 일관된 경로 사용
+    """
+    if not getattr(sys, 'frozen', False):
+        return  # 개발 환경에서는 불필요
+
+    import shutil
+    import glob
+
+    # 번들된 datasets 경로 (_internal/datasets)
+    bundled_datasets = os.path.join(sys._MEIPASS, 'datasets')
+    if not os.path.exists(bundled_datasets):
+        return
+
+    # 사용자 datasets 경로
+    user_datasets = get_user_data_path('datasets')
+
+    # 번들된 파일들을 사용자 경로로 복사 (존재하지 않는 경우만)
+    for src_file in glob.glob(os.path.join(bundled_datasets, '*.dat')):
+        filename = os.path.basename(src_file)
+        dst_file = os.path.join(user_datasets, filename)
+        if not os.path.exists(dst_file):
+            shutil.copy2(src_file, dst_file)
+
+
 def get_user_data_path(relative_path=''):
     """
     사용자 데이터 저장 경로 반환 (쓰기 가능한 경로)

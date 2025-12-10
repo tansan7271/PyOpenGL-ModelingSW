@@ -15,7 +15,7 @@ from PyQt5.QtGui import QCursor, QImage
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from miro_weather import WeatherSystem
-from resource_path import get_resource_path
+from resource_path import get_resource_path, get_user_data_path
 
 # 게임 상수
 PLAYER_HEIGHT = 0.8       # 눈높이
@@ -1856,7 +1856,7 @@ class MiroOpenGLWidget(QOpenGLWidget):
 
     def _load_item_models(self):
         """아이템 모델 로드 (datasets/item_*.dat) - Fallback"""
-        datasets_path = get_resource_path('datasets')
+        datasets_path = get_user_data_path('datasets')
         item_files = sorted(glob.glob(os.path.join(datasets_path, 'item_*.dat')))
 
         self.item_models = []

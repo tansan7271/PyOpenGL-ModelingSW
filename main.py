@@ -7,7 +7,10 @@ from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QPalette
 from PyQt5.QtSvg import QSvgRenderer
 
 # PyInstaller 빌드용 리소스 경로 헬퍼
-from resource_path import get_resource_path
+from resource_path import get_resource_path, ensure_user_datasets
+
+# 번들된 데이터셋을 사용자 경로로 복사 (빌드 환경에서만 동작)
+ensure_user_datasets()
 
 # 서브 애플리케이션 호출~!
 from modeler_ui_and_chang import MainWindow as ModelerWindow
